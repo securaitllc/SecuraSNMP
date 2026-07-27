@@ -1,0 +1,11 @@
+# Interface/Tunnel Graphing — progress ledger
+# (prior entries were from the SNMP Polling Engine subsystem plan, already merged to main — reset for this plan)
+Task 1: complete (commits 852e63b..80a95d8, fixed a plan gap: added explicit $table override on InterfaceMetricHistory since Eloquent would've pluralized to interface_metric_histories, review clean)
+Task 2: complete (commits 80a95d8..22874c7, applied same $table override fix, review clean)
+Task 3: complete (commits 22874c7..c29012e, review clean)
+Task 4: complete (commits c29012e..ac556b0, review clean)
+Task 5: complete (commits ac556b0..c79236f, review clean)
+Task 6: complete (commits c79236f..f3dd047, fixed real cross-interface recorded_at bug — production fix verified correct by direct code reading; regression test for it is a known non-discriminating gap since frozen-time testing can't distinguish single-vs-repeated now() calls and real SQLite timing never crosses the 1s column precision boundary)
+Task 7: complete (commits f3dd047..f0a794a, review clean)
+Task 8: complete (commits f0a794a..e9d84c1, review clean, independently reproduced by reviewer)
+Task 9: complete (e2e verified: 4 background loops running, 123/123 tests pass, all 3 seeded devices + interface/tunnel metrics + active alarm confirmed via real API calls with real Sanctum auth, metrics:prune runs cleanly)
