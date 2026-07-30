@@ -1,0 +1,362 @@
+- generic [ref=f14e1]:
+  - generic [ref=f14e5]:
+    - generic [ref=f14e6]:
+      - complementary [ref=f14e7]:
+        - generic [ref=f14e8]:
+          - link [ref=f14e9] [cursor=pointer]:
+            - /url: /
+            - generic:
+              - img "Nodus"
+            - heading "Nodus" [level=1] [ref=f14e11]
+          - button [ref=f14e13] [cursor=pointer]
+        - list [ref=f14e17]:
+          - listitem [ref=f14e18]:
+            - link "Dashboard" [ref=f14e19] [cursor=pointer]:
+              - /url: /
+          - listitem [ref=f14e22]:
+            - link "Sites" [ref=f14e23] [cursor=pointer]:
+              - /url: /sites
+          - listitem [ref=f14e26]:
+            - link "Topology" [ref=f14e27] [cursor=pointer]:
+              - /url: /topology
+          - listitem [ref=f14e30]:
+            - link "Devices" [ref=f14e31] [cursor=pointer]:
+              - /url: /devices
+          - listitem [ref=f14e34]:
+            - link "Circuits" [ref=f14e35] [cursor=pointer]:
+              - /url: /circuits
+          - listitem [ref=f14e38]:
+            - link "ISP Providers" [ref=f14e39] [cursor=pointer]:
+              - /url: /isp-providers
+          - listitem [ref=f14e42]:
+            - link "Vulnerabilities" [ref=f14e43] [cursor=pointer]:
+              - /url: /vulnerabilities
+          - listitem [ref=f14e46]:
+            - link "Discovery" [ref=f14e47] [cursor=pointer]:
+              - /url: /discovery
+          - listitem [ref=f14e50]:
+            - link "SSH Credentials" [ref=f14e51] [cursor=pointer]:
+              - /url: /ssh-credentials
+          - listitem [ref=f14e54]:
+            - link "Syslog" [ref=f14e55] [cursor=pointer]:
+              - /url: /syslog
+          - listitem [ref=f14e58]:
+            - link "SLA Report" [ref=f14e59] [cursor=pointer]:
+              - /url: /sla
+          - listitem [ref=f14e62]:
+            - link "Wallboard" [ref=f14e63] [cursor=pointer]:
+              - /url: /wallboard
+          - listitem [ref=f14e66]:
+            - link "Audit Log" [ref=f14e67] [cursor=pointer]:
+              - /url: /audit
+          - listitem [ref=f14e70]:
+            - link "Device Import" [ref=f14e71] [cursor=pointer]:
+              - /url: /device-import
+          - listitem [ref=f14e74]:
+            - link "Circuit Import" [ref=f14e75] [cursor=pointer]:
+              - /url: /circuit-import
+          - listitem [ref=f14e78]:
+            - link "Notifications" [ref=f14e79] [cursor=pointer]:
+              - /url: /notifications
+          - listitem [ref=f14e82]:
+            - link "Users" [ref=f14e83] [cursor=pointer]:
+              - /url: /users
+      - generic [ref=f14e88]:
+        - banner [ref=f14e89]:
+          - generic [ref=f14e91]:
+            - button [ref=f14e92] [cursor=pointer]
+            - button [ref=f14e95] [cursor=pointer]:
+              - status "Badge" [ref=f14e100]: "6"
+            - status "Badge" [ref=f14e106]
+        - main [ref=f14e107]:
+          - generic [ref=f14e109]:
+            - generic [ref=f14e112]:
+              - button [ref=f14e113] [cursor=pointer]
+              - generic [ref=f14e118]:
+                - heading "demo-core-sw01" [level=1] [ref=f14e119]
+                - generic [ref=f14e120]: Reachable
+                - generic [ref=f14e123]: Last check 10h 48m ago
+            - generic [ref=f14e127]:
+              - generic [ref=f14e129]:
+                - generic [ref=f14e130]:
+                  - generic [ref=f14e131]: Response Time (ICMP)
+                  - combobox [ref=f14e137] [cursor=pointer]:
+                    - generic [ref=f14e139]:
+                      - generic [ref=f14e140]: 24 Hours
+                      - combobox "Open": 24h
+                - generic [ref=f14e144]:
+                  - generic [ref=f14e145]:
+                    - generic [ref=f14e146]: 20 ms
+                    - generic [ref=f14e147]: UP
+                    - generic [ref=f14e149]: 100% reachable · 159 checks · pinged every 60s
+                  - img [ref=f14e152]:
+                    - generic [ref=f14e155]:
+                      - generic "26 ms" [ref=f14e156]
+                      - generic "21 ms" [ref=f14e157]
+                      - generic "16 ms" [ref=f14e158]
+                      - generic "10 ms" [ref=f14e159]
+                      - generic "5 ms" [ref=f14e160]
+                      - generic "0 ms" [ref=f14e161]
+                    - generic [ref=f14e169]:
+                      - generic "11:00" [ref=f14e170]
+                      - generic "12:00" [ref=f14e171]
+                      - generic "13:00" [ref=f14e172]
+                      - generic "14:00" [ref=f14e173]
+                      - generic "15:00" [ref=f14e174]
+                      - generic "16:00" [ref=f14e175]
+                      - generic "17:00" [ref=f14e176]
+                      - generic "18:00" [ref=f14e177]
+                      - generic "19:00" [ref=f14e178]
+                      - generic "20:00" [ref=f14e179]
+                      - generic "21:00" [ref=f14e180]
+                      - generic "22:00" [ref=f14e181]
+                      - generic "23:00" [ref=f14e182]
+                  - generic [ref=f14e183]:
+                    - generic [ref=f14e184]: Avg11 ms
+                    - generic [ref=f14e185]: Min5 ms
+                    - generic [ref=f14e186]: Max26 ms
+              - generic [ref=f14e188]:
+                - generic [ref=f14e189]: Tools · Looking Glass
+                - generic [ref=f14e193]:
+                  - generic [ref=f14e194]:
+                    - button "Ping" [ref=f14e195] [cursor=pointer]
+                    - button "Traceroute" [ref=f14e199] [cursor=pointer]
+                    - button "SNMP walk" [ref=f14e203] [cursor=pointer]
+                  - generic [ref=f14e207]: Run a live diagnostic against 10.10.1.1.
+            - generic [ref=f14e208]:
+              - generic [ref=f14e209]:
+                - generic [ref=f14e210]: Vulnerabilities
+                - link "All findings" [ref=f14e214] [cursor=pointer]:
+                  - /url: /vulnerabilities
+              - alert [ref=f14e219]:
+                - generic [ref=f14e222]:
+                  - text: No firmware version has been polled for this device yet, so it can’t be assessed. It will appear once
+                  - code [ref=f14e223]: health:monitor
+                  - text: reads its OS version.
+            - generic [ref=f14e224]:
+              - generic [ref=f14e225]:
+                - generic [ref=f14e226]: Device Detail
+                - button "Edit" [ref=f14e231] [cursor=pointer]
+              - separator [ref=f14e235]
+              - generic [ref=f14e236]:
+                - generic [ref=f14e237]:
+                  - generic [ref=f14e238]:
+                    - generic [ref=f14e239]: Identity
+                    - generic [ref=f14e240]:
+                      - term [ref=f14e241]: Vendor
+                      - definition [ref=f14e242]: juniper
+                      - term [ref=f14e243]: Model
+                      - definition [ref=f14e244]: EX3400
+                      - term [ref=f14e245]: Serial
+                      - definition [ref=f14e246]: JN291739X
+                      - term [ref=f14e247]: OS version
+                      - definition [ref=f14e248]: —
+                  - generic [ref=f14e249]:
+                    - generic [ref=f14e250]: Placement
+                    - generic [ref=f14e251]:
+                      - term [ref=f14e252]: Site
+                      - definition [ref=f14e253]: Corporate HQ — Orlando
+                      - term [ref=f14e254]: Role
+                      - definition [ref=f14e255]: switch
+                      - term [ref=f14e256]: IP address
+                      - definition [ref=f14e257]: 10.10.1.1
+                      - term [ref=f14e258]: Admin status
+                      - definition [ref=f14e259]:
+                        - generic [ref=f14e260]: active
+                  - generic [ref=f14e262]:
+                    - generic [ref=f14e263]: Health
+                    - generic [ref=f14e264]:
+                      - generic [ref=f14e265]:
+                        - generic [ref=f14e266]:
+                          - generic [ref=f14e267]: CPU
+                          - generic [ref=f14e268]: 22%
+                        - progressbar [ref=f14e269]
+                      - generic [ref=f14e272]:
+                        - generic [ref=f14e273]:
+                          - generic [ref=f14e274]: Memory
+                          - generic [ref=f14e275]: 55%
+                        - progressbar [ref=f14e276]
+                      - generic [ref=f14e279]:
+                        - generic [ref=f14e280]:
+                          - generic [ref=f14e281]: Temperature
+                          - generic [ref=f14e282]: 38°C
+                        - generic [ref=f14e283]:
+                          - generic [ref=f14e284]: Uptime
+                          - generic [ref=f14e285]: 14d 1h
+                - generic [ref=f14e286]: Environment sensors
+                - table [ref=f14e289]:
+                  - rowgroup [ref=f14e290]:
+                    - row [ref=f14e291]:
+                      - columnheader "Sensor" [ref=f14e292]
+                      - columnheader "Type" [ref=f14e293]
+                      - columnheader "Reading" [ref=f14e294]
+                      - columnheader "Status" [ref=f14e295]
+                  - rowgroup [ref=f14e296]:
+                    - row [ref=f14e297]:
+                      - cell "Fan 1" [ref=f14e298]
+                      - cell "rpm" [ref=f14e299]
+                      - cell "4200 RPM" [ref=f14e300]
+                      - cell "ok" [ref=f14e301]
+                    - row [ref=f14e304]:
+                      - cell "Inlet Temp" [ref=f14e305]
+                      - cell "celsius" [ref=f14e306]
+                      - cell "38 °C" [ref=f14e307]
+                      - cell "ok" [ref=f14e308]
+            - generic [ref=f14e311]:
+              - generic [ref=f14e313]:
+                - generic [ref=f14e314]:
+                  - text: Connected Endpoints
+                  - generic [ref=f14e316]: "1"
+                - generic [ref=f14e318]: Advertised over LLDP. An endpoint that does not speak LLDP will not appear here. Disconnected endpoints stay listed for 90 days so a down port can still be traced.
+              - separator [ref=f14e319]
+              - table [ref=f14e322]:
+                - rowgroup [ref=f14e323]:
+                  - row [ref=f14e324]:
+                    - columnheader "Port" [ref=f14e325]
+                    - columnheader "Endpoint" [ref=f14e326]
+                    - columnheader "Address" [ref=f14e327]
+                    - columnheader "Remote port" [ref=f14e328]
+                - rowgroup [ref=f14e329]:
+                  - row [ref=f14e330]:
+                    - cell "ge-0/0/47" [ref=f14e331]
+                    - cell "demo-edge-01 managed" [ref=f14e333]:
+                      - generic [ref=f14e338]:
+                        - link "demo-edge-01" [ref=f14e339] [cursor=pointer]:
+                          - /url: /devices/2
+                        - generic [ref=f14e340]: managed
+                    - cell "not advertised" [ref=f14e342]
+                    - cell "lan0" [ref=f14e343]
+            - generic [ref=f14e344]:
+              - generic [ref=f14e345]:
+                - generic [ref=f14e346]: Alarm History
+                - generic [ref=f14e350]:
+                  - generic [ref=f14e351]: 0 critical
+                  - generic [ref=f14e353]: 0 active
+                  - generic [ref=f14e355]: 0 cleared
+              - generic [ref=f14e358]:
+                - textbox "Search alarms…" [ref=f14e365]
+                - generic [ref=f14e366]:
+                  - button [active] [ref=f14e367] [cursor=pointer]
+                  - button [ref=f14e370] [cursor=pointer]
+                  - button [ref=f14e373] [cursor=pointer]
+                - generic [ref=f14e376]:
+                  - button "Active" [ref=f14e377] [cursor=pointer]
+                  - button "Cleared" [ref=f14e379] [cursor=pointer]
+              - generic [ref=f14e381]:
+                - table [ref=f14e383]:
+                  - rowgroup [ref=f14e384]:
+                    - row [ref=f14e385]:
+                      - columnheader "Severity" [ref=f14e386]
+                      - columnheader "Ticket" [ref=f14e390]
+                      - columnheader "Description" [ref=f14e394]
+                      - columnheader "Raised" [ref=f14e398]
+                      - columnheader "Duration" [ref=f14e402]
+                      - columnheader "Status" [ref=f14e406]
+                  - rowgroup [ref=f14e410]:
+                    - row [ref=f14e411]:
+                      - cell "No alarms match this filter." [ref=f14e412]
+                - separator [ref=f14e414]
+                - generic [ref=f14e415]:
+                  - generic [ref=f14e416]:
+                    - generic "Items per page:" [ref=f14e417]
+                    - combobox [ref=f14e420] [cursor=pointer]:
+                      - generic [ref=f14e422]:
+                        - generic [ref=f14e423]: "15"
+                        - combobox "Open": "15"
+                  - generic [ref=f14e427]: 0-0 of 0
+                  - navigation "Pagination Navigation" [ref=f14e430]:
+                    - list [ref=f14e431]:
+                      - listitem [ref=f14e432]:
+                        - button "First page" [disabled]
+                      - listitem [ref=f14e433]:
+                        - button "Previous page" [disabled]
+                      - listitem [ref=f14e434]:
+                        - button "Next page" [disabled]
+                      - listitem [ref=f14e435]:
+                        - button "Last page" [disabled]
+            - generic [ref=f14e436]:
+              - generic [ref=f14e438]:
+                - generic [ref=f14e439]:
+                  - generic [ref=f14e440]: Interfaces
+                  - generic [ref=f14e442]: "2"
+                - generic [ref=f14e449]:
+                  - generic: Filter interfaces
+                  - textbox "Filter interfaces Filter interfaces" [ref=f14e450]
+                - generic [ref=f14e453]:
+                  - table [ref=f14e455]:
+                    - rowgroup [ref=f14e456]:
+                      - row [ref=f14e457]:
+                        - columnheader "Name" [ref=f14e458]
+                        - columnheader "Status" [ref=f14e462]
+                        - columnheader "In Octets" [ref=f14e466]
+                        - columnheader "Out Octets" [ref=f14e470]
+                        - columnheader "Utilization" [ref=f14e474]
+                        - columnheader "In Discards (Δ)" [ref=f14e478]
+                        - columnheader "Out Discards (Δ)" [ref=f14e482]
+                    - rowgroup [ref=f14e486]:
+                      - row [ref=f14e487] [cursor=pointer]:
+                        - cell "ge-0/0/0" [ref=f14e488]
+                        - cell "up" [ref=f14e489]
+                        - cell "0" [ref=f14e493]
+                        - cell "0" [ref=f14e494]
+                        - cell "↓88% ↑76% 1 Gbps 88" [ref=f14e495]:
+                          - generic [ref=f14e496]:
+                            - generic [ref=f14e497]:
+                              - generic [ref=f14e498]: ↓88% ↑76%
+                              - generic [ref=f14e499]: 1 Gbps
+                            - progressbar [ref=f14e500]
+                        - cell "0" [ref=f14e503]
+                        - cell "0" [ref=f14e504]
+                      - row [ref=f14e505] [cursor=pointer]:
+                        - cell "ge-0/0/1" [ref=f14e506]
+                        - cell "up" [ref=f14e507]
+                        - cell "0" [ref=f14e511]
+                        - cell "0" [ref=f14e512]
+                        - cell "↓64% ↑52% 1 Gbps 64" [ref=f14e513]:
+                          - generic [ref=f14e514]:
+                            - generic [ref=f14e515]:
+                              - generic [ref=f14e516]: ↓64% ↑52%
+                              - generic [ref=f14e517]: 1 Gbps
+                            - progressbar [ref=f14e518]
+                        - cell "0" [ref=f14e521]
+                        - cell "0" [ref=f14e522]
+                  - separator [ref=f14e523]
+                  - generic [ref=f14e524]:
+                    - generic [ref=f14e525]:
+                      - generic "Items per page:" [ref=f14e526]
+                      - combobox [ref=f14e529] [cursor=pointer]:
+                        - generic [ref=f14e531]:
+                          - generic [ref=f14e532]: "15"
+                          - combobox "Open": "15"
+                    - generic [ref=f14e536]: 1-2 of 2
+                    - navigation "Pagination Navigation" [ref=f14e539]:
+                      - list [ref=f14e540]:
+                        - listitem [ref=f14e541]:
+                          - button "First page" [disabled]
+                        - listitem [ref=f14e542]:
+                          - button "Previous page" [disabled]
+                        - listitem [ref=f14e543]:
+                          - button "Next page" [disabled]
+                        - listitem [ref=f14e544]:
+                          - button "Last page" [disabled]
+              - generic [ref=f14e546]:
+                - generic [ref=f14e547]:
+                  - generic [ref=f14e548]: Active VLANs
+                  - generic [ref=f14e550]: "3"
+                - generic [ref=f14e554]:
+                  - generic [ref=f14e555]: 10 · DATA
+                  - generic [ref=f14e557]: 20 · VOICE
+                  - generic [ref=f14e559]: 99 · MGMT
+        - contentinfo [ref=f14e561]:
+          - generic [ref=f14e563]:
+            - generic [ref=f14e564]:
+              - text: © 2026, Made by
+              - link "SecuraIT.net" [ref=f14e565] [cursor=pointer]:
+                - /url: https://securait.net
+              - text: with by wisef0x
+            - generic [ref=f14e567]: v0.4.64
+    - region "Notifications alt+T":
+      - list
+    - button [ref=f14e569] [cursor=pointer]
+  - generic:
+    - tooltip
