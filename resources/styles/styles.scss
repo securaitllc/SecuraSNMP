@@ -1,0 +1,17 @@
+// Write your overrides
+
+// ── App-wide filter controls ─────────────────────────────────────────────
+// One consistent segmented-toggle style for every filter in the app (alarm
+// history, findings, …). Buttons hug their label instead of a fixed min-width
+// that squeezed the text together, and read as compact filter chips.
+.app-filter-toggle {
+  block-size: 34px;
+
+  .v-btn {
+    min-inline-size: auto;
+    padding-inline: 14px;
+    letter-spacing: normal;
+    text-transform: none;
+    font-size: 0.8125rem;
+  }
+}
