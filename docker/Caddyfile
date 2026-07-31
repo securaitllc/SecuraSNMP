@@ -1,0 +1,40 @@
+# SecuraSNMP TLS reverse proxy.
+#
+# Caddy terminates HTTPS and proxies to the app container. Certificates are
+# obtained AND renewed automatically — there is no cron job or certbot script to
+# maintain. Renewal happens in the background well before expiry.
+#
+#   * APP_DOMAIN is a public FQDN (port 80 reachable) -> a real Let's Encrypt
+#     certificate is issued and auto-renewed.
+#   * APP_DOMAIN is "localhost" or an IP -> Caddy issues a certificate from its
+#     own internal CA, so HTTPS works from the very first boot (browser will warn
+#     about the untrusted CA until a real domain is configured).
+
+# Bare-IP clients send no SNI; default_sni lets Caddy pick the IP's cert for
+# SNI-less TLS handshakes (otherwise the handshake fails with an internal error).
+{
+	default_sni {$APP_DOMAIN:localhost}
+}
+
+{$APP_DOMAIN:localhost}:{$HTTPS_PORT:34443} {
+	# Listen on all interfaces inside the container. The certificate name still
+	# comes from APP_DOMAIN, so setting APP_DOMAIN to the host's management IP
+	# (e.g. 10.15.0.10) yields an internal-CA cert valid for that IP without
+	# Caddy trying to bind an address the container does not own. Which host NIC
+	# is exposed is controlled by BIND_IP in docker-compose.yml.
+	bind 0.0.0.0
+
+	encode gzip
+
+	# Forward the real client scheme/host so Laravel builds correct https URLs.
+	# Overwrite X-Forwarded-For with the actual TCP peer so a client can't spoof
+	# its source IP (which would poison the audit log).
+	reverse_proxy app:8000 {
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-For {remote_host}
+	}
+
+	# Optional: to receive Let's Encrypt expiry notices, uncomment and set an
+	# address (Caddy issues + renews certs fine without one):
+	# tls you@example.com
+}
