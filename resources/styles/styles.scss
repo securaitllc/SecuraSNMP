@@ -1,0 +1,18 @@
+// Write your overrides
+
+// ── App-wide filter controls ─────────────────────────────────────────────
+// One consistent filter style for every filter in the app (alarm history,
+// findings, …): a row of colour-coded chips. Chips size to their own label so
+// text never overlaps; tonal when off, filled with their colour when on.
+.app-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+
+  .v-chip {
+    cursor: pointer;
+    font-weight: 600;
+    letter-spacing: normal;
+  }
+}
