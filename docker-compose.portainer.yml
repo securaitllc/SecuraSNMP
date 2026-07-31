@@ -1,0 +1,111 @@
+# SecuraSNMP — Portainer stack template (Git-repository method).
+#
+# Portainer cannot build images from a Dockerfile, so the app runs from the
+# pre-built public image on GHCR (no registry credentials needed). Deploy this
+# file with Portainer's "Git repository" method so ./docker/Caddyfile is checked
+# out on the host for the bind mount, and set the variables in the stack's
+# Environment variables section.
+#
+# To run a locally-built image instead, replace the app `image:` with
+# securasnmp:local and add `pull_policy: never` (and remove the watchtower label).
+#
+# NOTE: every value is either a literal or a plain ${VAR}. Do not add ":-default"
+# fallbacks whose default contains ":" or "@" — Portainer's compose loader rejects
+# them ("invalid interpolation format").
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    ports:
+      - "${BIND_IP}:${HTTPS_PORT}:${HTTPS_PORT}"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      HTTPS_PORT: ${HTTPS_PORT}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+  app:
+    image: ghcr.io/securaitllc/securasnmp:latest
+    pull_policy: always
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    ports:
+      - "${BIND_IP}:162:162/udp"
+      - "${BIND_IP}:514:514/udp"
+    environment:
+      APP_KEY: ${APP_KEY}
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: ${APP_URL}
+      SESSION_SECURE_COOKIE: "true"
+      TRAP_COMMUNITY: ${TRAP_COMMUNITY}
+      # Email alerts: set MAIL_MAILER=smtp and the SMTP_* env in Portainer to send
+      # real mail. Left as 'log' by default (writes emails to the app log, sends
+      # nothing) so a fresh install never fails on an unconfigured relay.
+      MAIL_MAILER: ${MAIL_MAILER:-log}
+      MAIL_HOST: ${MAIL_HOST:-127.0.0.1}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_SCHEME: ${MAIL_SCHEME:-}
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-alerts@securasnmp.local}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Nodus Alerts}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: securasnmp
+      DB_USERNAME: securasnmp
+      DB_PASSWORD: ${DB_PASSWORD}
+      SESSION_DRIVER: database
+      SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS}
+      SESSION_DOMAIN: ${SESSION_DOMAIN}
+      CORS_ALLOWED_ORIGINS: ${APP_URL}
+      GITHUB_REPO: securaitllc/SecuraSNMP
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      # Monitoring poll cadence (seconds). Default 300; set POLL_*_SECONDS in the
+      # stack environment (e.g. 90) for faster WAN detection/clear.
+      POLL_NEXTHOP_SECONDS: ${POLL_NEXTHOP_SECONDS:-300}
+      POLL_INTERFACE_SECONDS: ${POLL_INTERFACE_SECONDS:-300}
+      POLL_EDGECONNECT_SECONDS: ${POLL_EDGECONNECT_SECONDS:-300}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: securasnmp
+      MYSQL_USER: securasnmp
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Hands-off updates: pulls new :latest images for the labeled services (app +
+  # caddy, NOT the database) and recreates them. Requires the Docker socket —
+  # remove this service if you prefer to update manually.
+  watchtower:
+    image: containrrr/watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 3600 --cleanup --label-enable
+
+volumes:
+  mysql-data:
+  caddy-data:
+  caddy-config:
