@@ -1,0 +1,57 @@
+// Write your overrides
+
+// ── App-wide filter controls ─────────────────────────────────────────────
+// One consistent filter style for every filter in the app (alarm history,
+// findings, …): a row of colour-coded chips. Chips size to their own label so
+// text never overlaps; tonal when off, filled with their colour when on.
+.app-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+
+  .v-chip {
+    cursor: pointer;
+    font-weight: 600;
+    letter-spacing: normal;
+  }
+}
+
+// One consistent SEGMENTED-toggle style for every range/time/metric filter in
+// the app (interface graph, reports, …): a compact dark segmented control, the
+// active segment tinted with the primary colour. Apply `class="seg-toggle"` to a
+// VBtnToggle (density=comfortable, variant=outlined, mandatory, divided). Add
+// `seg-toggle--wide` when segments carry an icon + longer label.
+.seg-toggle {
+  block-size: 34px;
+  flex: none;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+
+  .v-btn {
+    block-size: 34px;
+    min-inline-size: 72px;
+    padding-inline: 14px;
+    white-space: nowrap;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    border: none;
+    border-radius: 0;
+    color: rgb(var(--v-theme-on-surface));
+    opacity: 0.7;
+  }
+  .v-btn .v-icon { font-size: 15px; margin-inline-end: 4px; }
+  .v-btn--active {
+    background: rgba(var(--v-theme-primary), 0.16);
+    color: rgb(var(--v-theme-primary));
+    opacity: 1;
+  }
+  .v-btn:not(:last-child) {
+    border-inline-end: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  }
+}
+.seg-toggle--wide .v-btn { min-inline-size: 92px; }
+.seg-toggle--narrow .v-btn { min-inline-size: 48px; }
