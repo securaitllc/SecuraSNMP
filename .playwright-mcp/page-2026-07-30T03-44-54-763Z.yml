@@ -1,0 +1,266 @@
+- generic [ref=f9e1]:
+  - generic [ref=f9e5]:
+    - generic [ref=f9e6]:
+      - complementary [ref=f9e7]:
+        - generic [ref=f9e8]:
+          - link [ref=f9e9] [cursor=pointer]:
+            - /url: /
+            - generic:
+              - img "Nodus"
+            - heading "Nodus" [level=1] [ref=f9e11]
+          - button [ref=f9e13] [cursor=pointer]
+        - list [ref=f9e17]:
+          - listitem [ref=f9e18]:
+            - link "Dashboard" [ref=f9e19] [cursor=pointer]:
+              - /url: /
+          - listitem [ref=f9e22]:
+            - link "Sites" [ref=f9e23] [cursor=pointer]:
+              - /url: /sites
+          - listitem [ref=f9e26]:
+            - link "Topology" [ref=f9e27] [cursor=pointer]:
+              - /url: /topology
+          - listitem [ref=f9e30]:
+            - link "Devices" [ref=f9e31] [cursor=pointer]:
+              - /url: /devices
+          - listitem [ref=f9e34]:
+            - link "Circuits" [ref=f9e35] [cursor=pointer]:
+              - /url: /circuits
+          - listitem [ref=f9e38]:
+            - link "ISP Providers" [ref=f9e39] [cursor=pointer]:
+              - /url: /isp-providers
+          - listitem [ref=f9e42]:
+            - link "Vulnerabilities" [ref=f9e43] [cursor=pointer]:
+              - /url: /vulnerabilities
+          - listitem [ref=f9e46]:
+            - link "Discovery" [ref=f9e47] [cursor=pointer]:
+              - /url: /discovery
+          - listitem [ref=f9e50]:
+            - link "SSH Credentials" [ref=f9e51] [cursor=pointer]:
+              - /url: /ssh-credentials
+          - listitem [ref=f9e54]:
+            - link "Syslog" [ref=f9e55] [cursor=pointer]:
+              - /url: /syslog
+          - listitem [ref=f9e58]:
+            - link "SLA Report" [ref=f9e59] [cursor=pointer]:
+              - /url: /sla
+          - listitem [ref=f9e62]:
+            - link "Wallboard" [ref=f9e63] [cursor=pointer]:
+              - /url: /wallboard
+          - listitem [ref=f9e66]:
+            - link "Audit Log" [ref=f9e67] [cursor=pointer]:
+              - /url: /audit
+          - listitem [ref=f9e70]:
+            - link "Device Import" [ref=f9e71] [cursor=pointer]:
+              - /url: /device-import
+          - listitem [ref=f9e74]:
+            - link "Circuit Import" [ref=f9e75] [cursor=pointer]:
+              - /url: /circuit-import
+          - listitem [ref=f9e78]:
+            - link "Notifications" [ref=f9e79] [cursor=pointer]:
+              - /url: /notifications
+          - listitem [ref=f9e82]:
+            - link "Users" [ref=f9e83] [cursor=pointer]:
+              - /url: /users
+      - generic [ref=f9e88]:
+        - banner [ref=f9e89]:
+          - generic [ref=f9e91]:
+            - button [ref=f9e92] [cursor=pointer]
+            - button [ref=f9e95] [cursor=pointer]:
+              - status "Badge" [ref=f9e100]: "6"
+            - status "Badge" [ref=f9e106]
+        - main [ref=f9e107]:
+          - generic [ref=f9e109]:
+            - generic [ref=f9e110]:
+              - generic [ref=f9e111]:
+                - heading "Vulnerability Posture" [level=4] [ref=f9e112]
+                - generic [ref=f9e113]: Passive CVE correlation against polled firmware — no scan traffic sent to devices.
+              - button "Refresh" [ref=f9e114] [cursor=pointer]
+            - generic [ref=f9e118]:
+              - generic [ref=f9e122] [cursor=pointer]:
+                - generic [ref=f9e123]: critical
+                - generic [ref=f9e124]: "1"
+              - generic [ref=f9e130] [cursor=pointer]:
+                - generic [ref=f9e131]: high
+                - generic [ref=f9e132]: "1"
+              - generic [ref=f9e138] [cursor=pointer]:
+                - generic [ref=f9e139]: medium
+                - generic [ref=f9e140]: "1"
+              - generic [ref=f9e146] [cursor=pointer]:
+                - generic [ref=f9e147]: low
+                - generic [ref=f9e148]: "0"
+            - generic [ref=f9e151]:
+              - generic [ref=f9e153]:
+                - generic [ref=f9e154]:
+                  - generic [ref=f9e155]: Fleet coverage
+                  - generic [ref=f9e157]: 14% assessed
+                - generic [ref=f9e160]:
+                  - progressbar [ref=f9e161]
+                  - generic [ref=f9e164]:
+                    - generic [ref=f9e165]:
+                      - generic [ref=f9e166]: Affected devices
+                      - strong [ref=f9e168]: "1"
+                    - generic [ref=f9e169]:
+                      - generic [ref=f9e170]: Clean (version known)
+                      - strong [ref=f9e172]: "0"
+                    - generic [ref=f9e173]:
+                      - generic [ref=f9e174]: No version (unassessed)
+                      - strong [ref=f9e176]: "6"
+                    - separator [ref=f9e177]
+                    - generic [ref=f9e178]:
+                      - generic [ref=f9e179]: Open findings
+                      - strong [ref=f9e180]: "3"
+              - generic [ref=f9e182]:
+                - generic [ref=f9e183]: By vendor
+                - generic [ref=f9e187]:
+                  - generic [ref=f9e188]:
+                    - generic [ref=f9e189]: juniper
+                    - generic [ref=f9e190]: 3 findings
+                  - generic [ref=f9e191]:
+                    - generic [ref=f9e192]: 1 crit
+                    - generic [ref=f9e194]: 1 high
+              - generic [ref=f9e197]:
+                - generic [ref=f9e198]: Most exposed devices
+                - list [ref=f9e201]:
+                  - listitem [active] [ref=f9e202] [cursor=pointer]:
+                    - generic [ref=f9e203]: "1"
+                    - generic [ref=f9e205]:
+                      - generic [ref=f9e206]: FL0001-HQSWC03
+                      - generic [ref=f9e207]: Corporate HQ — Orlando · juniper 20.4R3-S2.6
+                    - generic [ref=f9e209]:
+                      - generic [ref=f9e210]: "1"
+                      - generic [ref=f9e212]: "1"
+                      - generic [ref=f9e214]: CVSS 9.8
+                  - generic [ref=f9e363]:
+                    - generic [ref=f9e364]:
+                      - generic [ref=f9e365]: critical
+                      - generic [ref=f9e367]: "9.8"
+                      - link [ref=f9e368] [cursor=pointer]:
+                        - /url: https://nvd.nist.gov/vuln/detail/CVE-2024-21591
+                        - code [ref=f9e369]: CVE-2024-21591
+                      - generic [ref=f9e371]: Junos OS J-Web out-of-bounds write lets an unauthenticated attacker cause DoS or remote code execution and gain root.
+                      - generic [ref=f9e372]: 20.4 before 20.4R3-S9
+                    - generic [ref=f9e374]:
+                      - generic [ref=f9e375]: high
+                      - generic [ref=f9e377]: "7.8"
+                      - link [ref=f9e378] [cursor=pointer]:
+                        - /url: https://nvd.nist.gov/vuln/detail/CVE-2022-22221
+                        - code [ref=f9e379]: CVE-2022-22221
+                      - generic [ref=f9e381]: Junos OS J-Web local file inclusion of a crafted file can lead to local code execution.
+                      - generic [ref=f9e382]: 20.4 before 20.4R3-S4
+                    - generic [ref=f9e384]:
+                      - generic [ref=f9e385]: medium
+                      - generic [ref=f9e387]: "5.3"
+                      - link [ref=f9e388] [cursor=pointer]:
+                        - /url: https://nvd.nist.gov/vuln/detail/CVE-2023-36844
+                        - code [ref=f9e389]: CVE-2023-36844
+                      - generic [ref=f9e391]: Junos OS J-Web PHP external variable modification; chainable with related CVEs to unauthenticated remote code execution.
+                      - generic [ref=f9e392]: 20.4 before 20.4R3-S9
+                    - link "Open device page →" [ref=f9e394] [cursor=pointer]:
+                      - /url: /devices/1
+            - generic [ref=f9e217]:
+              - generic [ref=f9e218]:
+                - generic [ref=f9e219]: Findings
+                - generic [ref=f9e222]:
+                  - combobox [ref=f9e225] [cursor=pointer]:
+                    - generic [ref=f9e226]:
+                      - generic: Vendor
+                      - generic [ref=f9e227]:
+                        - combobox "Open"
+                  - generic [ref=f9e230]:
+                    - button "Open" [ref=f9e231] [cursor=pointer]
+                    - button "Ack’d" [ref=f9e233] [cursor=pointer]
+              - generic [ref=f9e235]:
+                - table [ref=f9e237]:
+                  - rowgroup [ref=f9e238]:
+                    - row [ref=f9e239]:
+                      - columnheader "Severity" [ref=f9e240]
+                      - columnheader "CVSS" [ref=f9e244]
+                      - columnheader "CVE" [ref=f9e248]
+                      - columnheader "Device" [ref=f9e252]
+                      - columnheader "Site" [ref=f9e256]
+                      - columnheader "Evidence" [ref=f9e260]
+                      - columnheader "First seen" [ref=f9e264]
+                      - columnheader [ref=f9e268]
+                  - rowgroup [ref=f9e269]:
+                    - row [ref=f9e270]:
+                      - cell "critical" [ref=f9e271]
+                      - cell "9.8" [ref=f9e274]
+                      - cell [ref=f9e275]:
+                        - link [ref=f9e276] [cursor=pointer]:
+                          - /url: https://nvd.nist.gov/vuln/detail/CVE-2024-21591
+                          - code [ref=f9e277]: CVE-2024-21591
+                      - cell "FL0001-HQSWC03 juniper EX3400 · 20.4R3-S2.6" [ref=f9e279]:
+                        - link "FL0001-HQSWC03" [ref=f9e280] [cursor=pointer]:
+                          - /url: /devices/1
+                        - generic [ref=f9e281]: juniper EX3400 · 20.4R3-S2.6
+                      - cell "Corporate HQ — Orlando" [ref=f9e282]
+                      - cell "20.4 before 20.4R3-S9" [ref=f9e283]
+                      - cell "7/29/2026" [ref=f9e286]
+                      - cell [ref=f9e287]:
+                        - button [ref=f9e288] [cursor=pointer]
+                    - row [ref=f9e291]:
+                      - cell "high" [ref=f9e292]
+                      - cell "7.8" [ref=f9e295]
+                      - cell [ref=f9e296]:
+                        - link [ref=f9e297] [cursor=pointer]:
+                          - /url: https://nvd.nist.gov/vuln/detail/CVE-2022-22221
+                          - code [ref=f9e298]: CVE-2022-22221
+                      - cell "FL0001-HQSWC03 juniper EX3400 · 20.4R3-S2.6" [ref=f9e300]:
+                        - link "FL0001-HQSWC03" [ref=f9e301] [cursor=pointer]:
+                          - /url: /devices/1
+                        - generic [ref=f9e302]: juniper EX3400 · 20.4R3-S2.6
+                      - cell "Corporate HQ — Orlando" [ref=f9e303]
+                      - cell "20.4 before 20.4R3-S4" [ref=f9e304]
+                      - cell "7/29/2026" [ref=f9e307]
+                      - cell [ref=f9e308]:
+                        - button [ref=f9e309] [cursor=pointer]
+                    - row [ref=f9e312]:
+                      - cell "medium" [ref=f9e313]
+                      - cell "5.3" [ref=f9e316]
+                      - cell [ref=f9e317]:
+                        - link [ref=f9e318] [cursor=pointer]:
+                          - /url: https://nvd.nist.gov/vuln/detail/CVE-2023-36844
+                          - code [ref=f9e319]: CVE-2023-36844
+                      - cell "FL0001-HQSWC03 juniper EX3400 · 20.4R3-S2.6" [ref=f9e321]:
+                        - link "FL0001-HQSWC03" [ref=f9e322] [cursor=pointer]:
+                          - /url: /devices/1
+                        - generic [ref=f9e323]: juniper EX3400 · 20.4R3-S2.6
+                      - cell "Corporate HQ — Orlando" [ref=f9e324]
+                      - cell "20.4 before 20.4R3-S9" [ref=f9e325]
+                      - cell "7/29/2026" [ref=f9e328]
+                      - cell [ref=f9e329]:
+                        - button [ref=f9e330] [cursor=pointer]
+                - separator [ref=f9e333]
+                - generic [ref=f9e334]:
+                  - generic [ref=f9e335]:
+                    - generic "Items per page:" [ref=f9e336]
+                    - combobox [ref=f9e339] [cursor=pointer]:
+                      - generic [ref=f9e341]:
+                        - generic [ref=f9e342]: "25"
+                        - combobox "Open": "25"
+                  - generic [ref=f9e346]: 1-3 of 3
+                  - navigation "Pagination Navigation" [ref=f9e349]:
+                    - list [ref=f9e350]:
+                      - listitem [ref=f9e351]:
+                        - button "First page" [disabled]
+                      - listitem [ref=f9e352]:
+                        - button "Previous page" [disabled]
+                      - listitem [ref=f9e353]:
+                        - button "Next page" [disabled]
+                      - listitem [ref=f9e354]:
+                        - button "Last page" [disabled]
+        - contentinfo [ref=f9e355]:
+          - generic [ref=f9e357]:
+            - generic [ref=f9e358]:
+              - text: © 2026, Made by
+              - link "SecuraIT.net" [ref=f9e359] [cursor=pointer]:
+                - /url: https://securait.net
+              - text: with by wisef0x
+            - generic [ref=f9e361]: v0.4.63
+    - region "Notifications alt+T":
+      - list
+  - generic:
+    - tooltip
+    - tooltip
+    - tooltip
+    - tooltip
