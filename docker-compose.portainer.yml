@@ -1,0 +1,135 @@
+# SecuraSNMP (Nodus) — Portainer stack, TWO-CONTAINER topology.
+#
+# Same image, two roles (set by APP_ROLE):
+#   * app     — nginx + php-fpm worker pool (serves the app, runs migrations)
+#   * pollers — the monitoring loops + snmptrapd (udp/162) + syslog (udp/514) + queue
+# Splitting them keeps a heavy SNMP/SSH sweep from ever competing with web requests
+# for CPU. They share a small "poller-beats" volume so /api/health/pollers works.
+#
+# Caddy uses an inline `configs:` block (no host bind mount), so this deploys
+# straight from Portainer's web editor. Set the ${VAR}s in the stack's
+# Environment variables section.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "${BIND_IP}:${HTTPS_PORT}:${HTTPS_PORT}"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      HTTPS_PORT: ${HTTPS_PORT}
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+
+  app:
+    image: ghcr.io/securaitllc/securasnmp:latest
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      APP_ROLE: web
+      APP_KEY: ${APP_KEY}
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: ${APP_URL}
+      SESSION_SECURE_COOKIE: "true"
+      TRAP_COMMUNITY: ${TRAP_COMMUNITY}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: securasnmp
+      DB_USERNAME: securasnmp
+      DB_PASSWORD: ${DB_PASSWORD}
+      SESSION_DRIVER: database
+      SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS}
+      SESSION_DOMAIN: ${SESSION_DOMAIN}
+      CORS_ALLOWED_ORIGINS: ${APP_URL}
+      MAIL_MAILER: log
+      MAIL_FROM_ADDRESS: alerts@securasnmp.local
+      POLL_NEXTHOP_SECONDS: "90"
+      POLL_INTERFACE_SECONDS: "90"
+      POLL_EDGECONNECT_SECONDS: "90"
+    volumes:
+      - poller-beats:/var/www/html/storage/app/pollers
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  pollers:
+    image: ghcr.io/securaitllc/securasnmp:latest
+    pull_policy: always
+    restart: unless-stopped
+    ports:
+      - "${BIND_IP}:162:162/udp"
+      - "${BIND_IP}:514:514/udp"
+    environment:
+      APP_ROLE: pollers
+      APP_KEY: ${APP_KEY}
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: ${APP_URL}
+      SESSION_SECURE_COOKIE: "true"
+      TRAP_COMMUNITY: ${TRAP_COMMUNITY}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: securasnmp
+      DB_USERNAME: securasnmp
+      DB_PASSWORD: ${DB_PASSWORD}
+      SESSION_DRIVER: database
+      SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS}
+      SESSION_DOMAIN: ${SESSION_DOMAIN}
+      CORS_ALLOWED_ORIGINS: ${APP_URL}
+      MAIL_MAILER: log
+      MAIL_FROM_ADDRESS: alerts@securasnmp.local
+      POLL_NEXTHOP_SECONDS: "90"
+      POLL_INTERFACE_SECONDS: "90"
+      POLL_EDGECONNECT_SECONDS: "90"
+    volumes:
+      - poller-beats:/var/www/html/storage/app/pollers
+    depends_on:
+      mysql:
+        condition: service_healthy
+      app:
+        condition: service_started
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: securasnmp
+      MYSQL_USER: securasnmp
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+configs:
+  caddyfile:
+    content: |
+      {
+        default_sni {$$APP_DOMAIN}
+      }
+      {$$APP_DOMAIN}:{$$HTTPS_PORT} {
+        bind 0.0.0.0
+        encode gzip
+        reverse_proxy app:8000 {
+          header_up X-Forwarded-Proto https
+        }
+      }
+
+volumes:
+  mysql-data:
+  caddy-data:
+  caddy-config:
+  poller-beats:
