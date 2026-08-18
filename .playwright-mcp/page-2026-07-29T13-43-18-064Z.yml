@@ -1,0 +1,266 @@
+- generic [ref=f1e1]:
+  - generic [ref=f1e5]:
+    - generic [ref=f1e6]:
+      - complementary [ref=f1e7]:
+        - generic [ref=f1e8]:
+          - link [ref=f1e9] [cursor=pointer]:
+            - /url: /
+            - generic:
+              - img "Nodus"
+            - heading "Nodus" [level=1] [ref=f1e11]
+          - button [ref=f1e13] [cursor=pointer]
+        - list [ref=f1e17]:
+          - listitem [ref=f1e18]:
+            - link "Dashboard" [ref=f1e19] [cursor=pointer]:
+              - /url: /
+          - listitem [ref=f1e22]:
+            - link "Sites" [ref=f1e23] [cursor=pointer]:
+              - /url: /sites
+          - listitem [ref=f1e26]:
+            - link "Topology" [ref=f1e27] [cursor=pointer]:
+              - /url: /topology
+          - listitem [ref=f1e30]:
+            - link "Devices" [ref=f1e31] [cursor=pointer]:
+              - /url: /devices
+          - listitem [ref=f1e34]:
+            - link "Circuits" [ref=f1e35] [cursor=pointer]:
+              - /url: /circuits
+          - listitem [ref=f1e38]:
+            - link "ISP Providers" [ref=f1e39] [cursor=pointer]:
+              - /url: /isp-providers
+          - listitem [ref=f1e42]:
+            - link "Vulnerabilities" [ref=f1e43] [cursor=pointer]:
+              - /url: /vulnerabilities
+          - listitem [ref=f1e46]:
+            - link "Discovery" [ref=f1e47] [cursor=pointer]:
+              - /url: /discovery
+          - listitem [ref=f1e50]:
+            - link "SSH Credentials" [ref=f1e51] [cursor=pointer]:
+              - /url: /ssh-credentials
+          - listitem [ref=f1e54]:
+            - link "Syslog" [ref=f1e55] [cursor=pointer]:
+              - /url: /syslog
+          - listitem [ref=f1e58]:
+            - link "SLA Report" [ref=f1e59] [cursor=pointer]:
+              - /url: /sla
+          - listitem [ref=f1e62]:
+            - link "Wallboard" [ref=f1e63] [cursor=pointer]:
+              - /url: /wallboard
+          - listitem [ref=f1e66]:
+            - link "Audit Log" [ref=f1e67] [cursor=pointer]:
+              - /url: /audit
+          - listitem [ref=f1e70]:
+            - link "Device Import" [ref=f1e71] [cursor=pointer]:
+              - /url: /device-import
+          - listitem [ref=f1e74]:
+            - link "Circuit Import" [ref=f1e75] [cursor=pointer]:
+              - /url: /circuit-import
+          - listitem [ref=f1e78]:
+            - link "Notifications" [ref=f1e79] [cursor=pointer]:
+              - /url: /notifications
+          - listitem [ref=f1e82]:
+            - link "Users" [ref=f1e83] [cursor=pointer]:
+              - /url: /users
+      - generic [ref=f1e88]:
+        - banner [ref=f1e89]:
+          - generic [ref=f1e91]:
+            - button [ref=f1e92] [cursor=pointer]
+            - button [ref=f1e95] [cursor=pointer]:
+              - status "Badge" [ref=f1e100]: "7"
+            - status "Badge" [ref=f1e106]
+        - main [ref=f1e107]:
+          - generic [ref=f1e109]:
+            - generic [ref=f1e110]:
+              - generic [ref=f1e111]:
+                - heading "Network Overview" [level=1] [ref=f1e112]
+                - generic [ref=f1e113]: Signed in as Admin (admin)
+              - generic [ref=f1e114]:
+                - generic [ref=f1e115]: Auto-refreshes every 30s
+                - button "Refresh" [ref=f1e116] [cursor=pointer]
+            - combobox [ref=f1e122]:
+              - combobox "Search device, IP, hostname, site, MAC, phone extension, ISP ticket, or alarm/event ID…" [ref=f1e127] [cursor=pointer]
+              - button "Open" [ref=f1e129] [cursor=pointer]
+            - generic [ref=f1e130]:
+              - generic [ref=f1e132] [cursor=pointer]:
+                - generic [ref=f1e133]: Sites
+                - generic [ref=f1e134]: "4"
+              - generic [ref=f1e136] [cursor=pointer]:
+                - generic [ref=f1e137]: Devices
+                - generic [ref=f1e138]: "7"
+              - generic [ref=f1e140] [cursor=pointer]:
+                - generic [ref=f1e141]: Active Alerts
+                - generic [ref=f1e142]: "7"
+              - generic [ref=f1e144] [cursor=pointer]:
+                - generic [ref=f1e145]: Circuits Down
+                - generic [ref=f1e146]: "1"
+              - generic [ref=f1e148] [cursor=pointer]:
+                - generic [ref=f1e149]: Interfaces Down
+                - generic [ref=f1e150]: "1"
+              - generic [ref=f1e152] [cursor=pointer]:
+                - generic [ref=f1e153]: Tunnels Down
+                - generic [ref=f1e154]: "2"
+              - generic [ref=f1e156] [cursor=pointer]:
+                - generic [ref=f1e157]: Link Quality
+                - generic [ref=f1e158]: "0"
+            - generic [ref=f1e159]:
+              - generic [ref=f1e160]:
+                - generic [ref=f1e161]: Sites Health
+                - generic [ref=f1e163]: Active now
+              - generic [ref=f1e167]:
+                - generic [ref=f1e168]:
+                  - generic:
+                    - generic:
+                      - button "1" [ref=f1e169] [cursor=pointer]
+                      - button "4" [ref=f1e171] [cursor=pointer]
+                      - button [ref=f1e173] [cursor=pointer]
+                      - button "2" [ref=f1e175] [cursor=pointer]
+                  - generic:
+                    - generic [ref=f1e177]:
+                      - button "Zoom in" [ref=f1e178] [cursor=pointer]: +
+                      - button "Zoom out" [ref=f1e179] [cursor=pointer]: −
+                    - generic [ref=f1e180]:
+                      - link "Leaflet" [ref=f1e181] [cursor=pointer]:
+                        - /url: https://leafletjs.com
+                      - text: "| © OpenStreetMap © CARTO"
+                - generic: Ctrl + scroll to zoom · drag to pan
+                - generic [ref=f1e186]:
+                  - generic [ref=f1e187]: Healthy
+                  - generic [ref=f1e189]: Alerting
+                  - generic [ref=f1e191]: scroll zoom · drag pan · click a site
+            - generic [ref=f1e194]:
+              - generic [ref=f1e195]:
+                - generic [ref=f1e196]: Active Alerts
+                - generic [ref=f1e198]: 7 active
+              - generic [ref=f1e201]:
+                - generic [ref=f1e202]:
+                  - button "Interfaces 1" [ref=f1e203] [cursor=pointer]:
+                    - generic [ref=f1e204]: Interfaces
+                    - generic [ref=f1e207]: "1"
+                  - button "Circuits 1" [ref=f1e208] [cursor=pointer]:
+                    - generic [ref=f1e209]: Circuits
+                    - generic [ref=f1e212]: "1"
+                  - button "Tunnels 2" [ref=f1e213] [cursor=pointer]:
+                    - generic [ref=f1e214]: Tunnels
+                    - generic [ref=f1e217]: "2"
+                  - button "Alarms 2" [ref=f1e218] [cursor=pointer]:
+                    - generic [ref=f1e219]: Alarms
+                    - generic [ref=f1e222]: "2"
+                - generic [ref=f1e223]:
+                  - generic [ref=f1e224]: Critical — service down
+                  - generic [ref=f1e226]: Warning — degraded
+                - separator [ref=f1e228]
+                - button "Corporate HQ — Orlando 2 devices DOWN 25m Incident Site outage — devices unreachable (check WAN edge / power)" [ref=f1e229] [cursor=pointer]:
+                  - generic [ref=f1e230]:
+                    - generic [ref=f1e231]:
+                      - generic [ref=f1e232]: Corporate HQ — Orlando
+                      - generic [ref=f1e233]: 2 devices DOWN
+                    - generic [ref=f1e234]: 25m
+                  - generic [ref=f1e235]:
+                    - generic [ref=f1e236]: Incident
+                    - generic [ref=f1e238]: Site outage — devices unreachable (check WAN edge / power)
+                - button "Miami Branch miami-sw01 · ge-0/0/1 41m Interface Interface down" [ref=f1e239] [cursor=pointer]:
+                  - generic [ref=f1e240]:
+                    - generic [ref=f1e241]:
+                      - generic [ref=f1e242]: Miami Branch
+                      - generic [ref=f1e243]: miami-sw01 · ge-0/0/1
+                    - generic [ref=f1e244]: 41m
+                  - generic [ref=f1e245]:
+                    - generic [ref=f1e246]: Interface
+                    - generic [ref=f1e248]: Interface down
+                - button "Jacksonville Branch jax-ec01 2h 40m Incident WAN uplink down — check interface & cable, then ISP ticket" [ref=f1e249] [cursor=pointer]:
+                  - generic [ref=f1e250]:
+                    - generic [ref=f1e251]:
+                      - generic [ref=f1e252]: Jacksonville Branch
+                      - generic [ref=f1e253]: jax-ec01
+                    - generic [ref=f1e254]: 2h 40m
+                  - generic [ref=f1e255]:
+                    - generic [ref=f1e256]: Incident
+                    - generic [ref=f1e258]: WAN uplink down — check interface & cable, then ISP ticket
+                - button "Jacksonville Branch AT&T — CKT-JAX-9032 2h 44m Circuit Circuit down" [ref=f1e259] [cursor=pointer]:
+                  - generic [ref=f1e260]:
+                    - generic [ref=f1e261]:
+                      - generic [ref=f1e262]: Jacksonville Branch
+                      - generic [ref=f1e263]: AT&T — CKT-JAX-9032
+                    - generic [ref=f1e264]: 2h 44m
+                  - generic [ref=f1e265]:
+                    - generic [ref=f1e266]: Circuit
+                    - generic [ref=f1e268]: Circuit down
+        - contentinfo [ref=f1e269]:
+          - generic [ref=f1e271]:
+            - generic [ref=f1e272]:
+              - text: © 2026, Made by
+              - link "SecuraIT.net" [ref=f1e273] [cursor=pointer]:
+                - /url: https://securait.net
+              - text: with by wisef0x
+            - generic [ref=f1e275]: v0.4.58
+    - region "Notifications alt+T":
+      - list
+  - generic:
+    - tooltip
+    - dialog:
+      - generic [ref=f1e279]:
+        - generic [ref=f1e283]:
+          - generic [ref=f1e284]:
+            - generic [ref=f1e285]: Corporate HQ — Orlando
+            - generic [ref=f1e286]: critical
+            - generic [ref=f1e287]: ·
+            - generic [ref=f1e288]: Incident
+            - generic [ref=f1e289]: ·
+            - generic [ref=f1e290]: 25m
+          - generic [ref=f1e291]: 2 devices DOWN
+        - generic [ref=f1e293]:
+          - generic [ref=f1e294]:
+            - generic [ref=f1e295]:
+              - heading "Diagnosis" [level=4] [ref=f1e296]
+              - paragraph [ref=f1e297]: Site outage — devices unreachable (check WAN edge / power)
+              - list [ref=f1e298]:
+                - listitem [ref=f1e299]: "2 devices unreachable: demo-core-sw01, demo-edge-01"
+            - generic [ref=f1e300]:
+              - heading "Correlated signals (2)" [level=4] [ref=f1e301]
+              - button "demo-core-sw01 — DOWN 25m Alarm Device unreachable (ICMP) — DOWN" [ref=f1e302] [cursor=pointer]:
+                - generic [ref=f1e303]:
+                  - generic [ref=f1e304]: demo-core-sw01 — DOWN
+                  - generic [ref=f1e305]: 25m
+                - generic [ref=f1e306]:
+                  - generic [ref=f1e307]: Alarm
+                  - generic [ref=f1e309]: Device unreachable (ICMP) — DOWN
+              - button "demo-edge-01 — DOWN 25m Alarm Device unreachable (ICMP) — DOWN" [ref=f1e310] [cursor=pointer]:
+                - generic [ref=f1e311]:
+                  - generic [ref=f1e312]: demo-edge-01 — DOWN
+                  - generic [ref=f1e313]: 25m
+                - generic [ref=f1e314]:
+                  - generic [ref=f1e315]: Alarm
+                  - generic [ref=f1e317]: Device unreachable (ICMP) — DOWN
+            - generic [ref=f1e318]:
+              - heading "What to do" [level=4] [ref=f1e319]
+              - list [ref=f1e320]:
+                - listitem [ref=f1e321]: Several devices at this site went unreachable together — treat it as one site-wide outage, not separate device faults.
+                - listitem [ref=f1e322]: Check the site’s WAN edge (the SD-WAN appliance) and site power first — that is what drops everything at once.
+                - listitem [ref=f1e323]: "Then the uplink: circuit / next-hop, and escalate to the ISP if the edge is healthy."
+                - listitem [ref=f1e324]: Open each device below to acknowledge or clear it once the site is restored.
+          - generic [ref=f1e325]:
+            - heading "Path" [level=4] [ref=f1e326]
+            - generic [ref=f1e327]:
+              - generic [ref=f1e328]:
+                - generic [ref=f1e332]:
+                  - generic [ref=f1e333]: Lumen
+                  - generic [ref=f1e334]: CKT-ORL-4471
+                - generic [ref=f1e337]:
+                  - generic [ref=f1e340]:
+                    - generic [ref=f1e341]: 24.104.8.1
+                    - generic [ref=f1e342]: wan1
+                  - generic [ref=f1e346]:
+                    - generic [ref=f1e347]: 64.132.10.1
+                    - generic [ref=f1e348]: wan0
+                - generic [ref=f1e354]:
+                  - generic [ref=f1e355]: demo-edge-01
+                  - generic [ref=f1e356]: EC10104
+                - generic [ref=f1e362]:
+                  - generic [ref=f1e363]: demo-core-sw01
+                  - generic [ref=f1e364]: EX3400
+                - generic [ref=f1e370]:
+                  - generic [ref=f1e371]: demo-fw01
+                  - generic [ref=f1e372]: FortiGate 100F
+              - link "Open full topology →" [ref=f1e374] [cursor=pointer]:
+                - /url: /topology?site=1
+        - button "Close" [ref=f1e376] [cursor=pointer]
