@@ -1,0 +1,243 @@
+# SecuraSNMP (Nodus) — Portainer stack, TWO-CONTAINER topology.
+#
+# Same image, two roles (set by APP_ROLE):
+#   * app     — nginx + php-fpm worker pool (serves the app, runs migrations)
+#   * pollers — the monitoring loops + snmptrapd (udp/162) + syslog (udp/514) + queue
+# Splitting them keeps a heavy SNMP/SSH sweep from ever competing with web requests
+# for CPU. They share a small "poller-beats" volume so /api/health/pollers works.
+#
+# Caddy uses an inline `configs:` block (no host bind mount), so this deploys
+# straight from Portainer's web editor. Set the ${VAR}s in the stack's
+# Environment variables section.
+
+services:
+  caddy:
+    # Pinned to a specific, PROVEN version (not floating `2-alpine`): a routine app
+    # deploy must never pull a new proxy image. Watchtower is also scoped away from
+    # this service (see below), so the proxy only changes when you bump this tag.
+    # MUST stay >= 2.11: default_sni (serving the internal cert to SNI-less clients —
+    # a browser/curl hitting the bare management IP sends no SNI) regressed in 2.8.4
+    # and works in 2.11.4. Verified: 2.8.4 fails the no-SNI handshake, 2.11.4 serves.
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "${BIND_IP}:${HTTPS_PORT}:${HTTPS_PORT}"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      HTTPS_PORT: ${HTTPS_PORT}
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    labels:
+      # Watchtower must NEVER recreate the proxy (doing so dropped its published
+      # port and took prod offline). Only the app image is auto-updated.
+      - "com.centurylinklabs.watchtower.enable=false"
+
+  app:
+    image: ghcr.io/securaitllc/securasnmp:latest
+    pull_policy: always
+    restart: unless-stopped
+    labels:
+      # The ONLY container Watchtower is allowed to auto-update.
+      - "com.centurylinklabs.watchtower.enable=true"
+    environment:
+      APP_ROLE: web
+      APP_KEY: ${APP_KEY}
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: ${APP_URL}
+      SESSION_SECURE_COOKIE: "true"
+      TRAP_COMMUNITY: ${TRAP_COMMUNITY}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: securasnmp
+      DB_USERNAME: securasnmp
+      DB_PASSWORD: ${DB_PASSWORD}
+      SESSION_DRIVER: database
+      SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS}
+      SESSION_DOMAIN: ${SESSION_DOMAIN}
+      CORS_ALLOWED_ORIGINS: ${APP_URL}
+      MAIL_MAILER: log
+      MAIL_FROM_ADDRESS: alerts@securasnmp.local
+      POLL_NEXTHOP_SECONDS: "90"
+      POLL_INTERFACE_SECONDS: "90"
+      POLL_EDGECONNECT_SECONDS: "90"
+    volumes:
+      - poller-beats:/var/www/html/storage/app/pollers
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  pollers:
+    image: ghcr.io/securaitllc/securasnmp:latest
+    pull_policy: always
+    restart: unless-stopped
+    labels:
+      # Same image as app — auto-update it in lockstep.
+      - "com.centurylinklabs.watchtower.enable=true"
+    ports:
+      - "${BIND_IP}:162:162/udp"
+      - "${BIND_IP}:514:514/udp"
+    environment:
+      APP_ROLE: pollers
+      APP_KEY: ${APP_KEY}
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: ${APP_URL}
+      SESSION_SECURE_COOKIE: "true"
+      TRAP_COMMUNITY: ${TRAP_COMMUNITY}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: securasnmp
+      DB_USERNAME: securasnmp
+      DB_PASSWORD: ${DB_PASSWORD}
+      SESSION_DRIVER: database
+      SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS}
+      SESSION_DOMAIN: ${SESSION_DOMAIN}
+      CORS_ALLOWED_ORIGINS: ${APP_URL}
+      MAIL_MAILER: log
+      MAIL_FROM_ADDRESS: alerts@securasnmp.local
+      POLL_NEXTHOP_SECONDS: "90"
+      POLL_INTERFACE_SECONDS: "90"
+      POLL_EDGECONNECT_SECONDS: "90"
+    volumes:
+      - poller-beats:/var/www/html/storage/app/pollers
+    depends_on:
+      mysql:
+        condition: service_healthy
+      app:
+        condition: service_started
+
+  # NetFlow/sFlow collector: goflow2 decodes sFlow (Juniper) + NetFlow/IPFIX (FortiGate)
+  # into JSON on the shared flow-spool volume. Point your gear's flow export at this
+  # host on 6343 (sFlow) / 2055 (NetFlow) / 4739 (IPFIX). Keep those UDP ports firewalled
+  # to the device management network.
+  goflow2:
+    image: netsampler/goflow2:v2.2.1
+    # Runs as its image's non-root user (kept that way for hardening). The root-owned
+    # flow-spool volume is made group/other-writable by the `flows` container on
+    # startup (it shares the volume), so goflow2 can create /flows/flows.ndjson without
+    # running as root. goflow2 may restart a few times on first boot until that happens.
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    command: ["-listen=sflow://:6343,netflow://:2055,netflow://:4739", "-format=json", "-transport=file", "-transport.file=/flows/flows.ndjson"]
+    ports:
+      - "${BIND_IP}:6343:6343/udp"
+      - "${BIND_IP}:2055:2055/udp"
+      - "${BIND_IP}:4739:4739/udp"
+    volumes:
+      - flow-spool:/flows
+
+  # Dedicated flow-processing container (APP_ROLE=flows) — ingests goflow2's output and
+  # rolls it up, ISOLATED from the SNMP pollers so a flow burst can't starve alarms.
+  flows:
+    image: ghcr.io/securaitllc/securasnmp:latest
+    pull_policy: always
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    environment:
+      APP_ROLE: flows
+      APP_KEY: ${APP_KEY}
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: ${APP_URL}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: securasnmp
+      DB_USERNAME: securasnmp
+      DB_PASSWORD: ${DB_PASSWORD}
+      SESSION_DRIVER: database
+      FLOW_GOFLOW_FILE: /flows/flows.ndjson
+    volumes:
+      - flow-spool:/flows
+      - poller-beats:/var/www/html/storage/app/pollers
+    depends_on:
+      mysql:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    labels:
+      # The database is pinned and must never be auto-recreated by Watchtower.
+      - "com.centurylinklabs.watchtower.enable=false"
+    # Give InnoDB real memory: the default buffer pool is 128MB, far too small once the
+    # flow tables hold millions of rows, so every flow aggregate hit disk. A 2GB pool keeps
+    # the flow data + indexes hot in RAM. Tune DB_BUFFER_POOL to the host's spare memory
+    # (rule of thumb ~50-70% of RAM you can give the DB). redo-log sized to match.
+    command:
+      - "--innodb-buffer-pool-size=${DB_BUFFER_POOL:-2G}"
+      - "--innodb-redo-log-capacity=512M"
+      - "--innodb-flush-neighbors=0"
+      - "--max-connections=200"
+    environment:
+      MYSQL_DATABASE: securasnmp
+      MYSQL_USER: securasnmp
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Auto-updates ONLY the app + pollers (label-enabled). It cannot see caddy,
+  # mysql, or itself, so a routine app release can never recreate the proxy or DB
+  # again. Pinned image (not :latest) so Watchtower never surprises-updates itself.
+  #
+  # DOCKER_API_VERSION is REQUIRED on a modern docker daemon: containrrr/watchtower
+  # defaults its client to API 1.25, which newer daemons reject ("client version
+  # 1.25 is too old, minimum is 1.40") — that crash-loops watchtower exit 1. Pin the
+  # client to 1.40 (the accepted floor) or the daemon's own API version.
+  # Private GHCR pulls also need registry auth: REPO_USER/REPO_PASS (reuse the stack's
+  # GITHUB_TOKEN), or mount ~/.docker/config.json:/config.json:ro instead.
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+    environment:
+      DOCKER_API_VERSION: "1.40"
+      REPO_USER: ${WATCHTOWER_REPO_USER:-w1s3f0x404}
+      REPO_PASS: ${GITHUB_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --label-enable --cleanup --interval 3600
+
+configs:
+  caddyfile:
+    content: |
+      {
+        default_sni {$$APP_DOMAIN}
+      }
+      {$$APP_DOMAIN}:{$$HTTPS_PORT} {
+        bind 0.0.0.0
+        encode gzip
+        reverse_proxy app:8000 {
+          header_up X-Forwarded-Proto https
+          # Overwrite (not append) with the real TCP peer so a client cannot spoof
+          # its source IP in the audit log. Pairs with the app trusting only this
+          # proxy's network (see the trustProxies fix), not every upstream.
+          header_up X-Forwarded-For {remote_host}
+        }
+      }
+
+volumes:
+  mysql-data:
+  caddy-data:
+  caddy-config:
+  poller-beats:
+  flow-spool:
