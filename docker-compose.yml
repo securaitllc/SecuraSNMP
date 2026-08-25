@@ -1,0 +1,108 @@
+services:
+  # TLS reverse proxy. Terminates HTTPS on an uncommon port and auto-manages
+  # (issues + renews) Let's Encrypt certificates. See docker/Caddyfile.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      # BIND_IP restricts which host interface is published (default all). Set it
+      # to the management NIC's IP to bind the service to that interface only.
+      # ACME HTTP-01 challenge + redirect. Needed for real Let's Encrypt certs.
+      - "${BIND_IP:-0.0.0.0}:80:80"
+      # App HTTPS on an uncommon port to avoid conflicts. Change HTTPS_PORT if it
+      # clashes on your host (keep it in sync with APP_URL/SANCTUM_STATEFUL_DOMAINS).
+      - "${BIND_IP:-0.0.0.0}:${HTTPS_PORT:-34443}:${HTTPS_PORT:-34443}"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-localhost}
+      HTTPS_PORT: ${HTTPS_PORT:-34443}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Persists issued certificates + ACME account across restarts so renewals
+      # are not lost and re-issuance is not needed on every boot.
+      - caddy-data:/data
+      - caddy-config:/config
+
+  app:
+    build: .
+    restart: unless-stopped
+    # No host HTTP port — the app is reachable only through the Caddy proxy on
+    # the internal network. Only the SNMP trap receiver is published.
+    ports:
+      # SNMP trap receiver — devices send traps here on UDP 162 (BIND_IP-scoped).
+      - "${BIND_IP:-0.0.0.0}:162:162/udp"
+      # Syslog receiver — devices send syslog here on UDP 514.
+      - "${BIND_IP:-0.0.0.0}:514:514/udp"
+    environment:
+      APP_KEY: ${APP_KEY}
+      APP_ENV: production
+      # Never expose stack traces in production.
+      APP_DEBUG: ${APP_DEBUG:-false}
+      APP_URL: ${APP_URL:-https://localhost:34443}
+      # Served over HTTPS by default, so the session cookie is secure-only.
+      SESSION_SECURE_COOKIE: ${SESSION_SECURE_COOKIE:-true}
+      # Community string devices must use when sending SNMP traps to this collector.
+      TRAP_COMMUNITY: ${TRAP_COMMUNITY:-public}
+      # SMTP for email notification channels (default 'log' writes to the app log).
+      MAIL_MAILER: ${MAIL_MAILER:-log}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-alerts@securasnmp.local}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: securasnmp
+      DB_USERNAME: securasnmp
+      DB_PASSWORD: ${DB_PASSWORD}
+      SESSION_DRIVER: database
+      SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS:-localhost:34443}
+      SESSION_DOMAIN: ${SESSION_DOMAIN:-localhost}
+      CORS_ALLOWED_ORIGINS: ${APP_URL:-https://localhost:34443}
+      GITHUB_REPO: ${GITHUB_REPO:-securaitllc/SecuraSNMP}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      # OSINT enumeration sidecar (see the `enum` service). Reached on the internal
+      # network; the shared token must match the enum container's ENUM_TOKEN.
+      OSINT_ENUM_URL: ${OSINT_ENUM_URL:-http://enum:8099}
+      OSINT_ENUM_TOKEN: ${OSINT_ENUM_TOKEN:-nodus-enum-internal}
+      # Monitoring poll cadence (seconds). Default 300 (5 min); lower for faster
+      # WAN detection/clear on critical edges. Set these in the stack env to apply.
+      POLL_NEXTHOP_SECONDS: ${POLL_NEXTHOP_SECONDS:-300}
+      POLL_INTERFACE_SECONDS: ${POLL_INTERFACE_SECONDS:-300}
+      POLL_EDGECONNECT_SECONDS: ${POLL_EDGECONNECT_SECONDS:-300}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # OSINT subdomain-enumeration sidecar — subfinder (passive, 50+ sources incl
+  # VirusTotal when the app forwards a key) + dnsx (wildcard-filtered brute-force).
+  # Internal network only, no published ports; the app calls http://enum:8099 with
+  # the shared OSINT_ENUM_TOKEN. Heavy recon tooling is kept OUT of the app image.
+  enum:
+    image: ghcr.io/securaitllc/securasnmp-enum:latest
+    restart: unless-stopped
+    environment:
+      ENUM_TOKEN: ${OSINT_ENUM_TOKEN:-nodus-enum-internal}
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: securasnmp
+      MYSQL_USER: securasnmp
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mysql-data:
+  caddy-data:
+  caddy-config:
