@@ -1,0 +1,311 @@
+# SecuraSNMP (Nodus) — Portainer stack, SCALED topology.
+#
+# Same image, roles set by APP_ROLE:
+#   * app / app2 — nginx + php-fpm (web); Caddy load-balances across them. Only `app`
+#                  migrates (MIGRATE=1); app2 is a pure replica.
+#   * pollers    — SNMP/SSH monitoring loops + snmptrapd + syslog
+#   * flows      — NetFlow/sFlow ingest + rollup (isolated from pollers)
+#   * worker     — dedicated queue workers (alert/notification/discovery jobs)
+# redis backs cache + sessions + queue (shared across replicas). mysql tuned for RAM.
+# Caddy uses an inline configs block so it deploys from Portainer's web editor.
+
+services:
+  caddy:
+    # Pinned >= 2.11: default_sni for SNI-less clients regressed in 2.8.4, works in 2.11.4.
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    depends_on: [app, app2]
+    ports:
+      - "${BIND_IP}:${HTTPS_PORT}:${HTTPS_PORT}"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      HTTPS_PORT: ${HTTPS_PORT}
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+
+  app:
+    image: ghcr.io/securaitllc/securasnmp:latest
+    pull_policy: always
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    environment:
+      APP_ROLE: web
+      MIGRATE: "1"                 # the ONLY web instance that runs migrations
+      APP_KEY: ${APP_KEY}
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: ${APP_URL}
+      SESSION_SECURE_COOKIE: "true"
+      TRAP_COMMUNITY: ${TRAP_COMMUNITY}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: securasnmp
+      DB_USERNAME: securasnmp
+      DB_PASSWORD: ${DB_PASSWORD}
+      CACHE_STORE: redis
+      SESSION_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS}
+      SESSION_DOMAIN: ${SESSION_DOMAIN}
+      CORS_ALLOWED_ORIGINS: ${APP_URL}
+      MAIL_MAILER: log
+      MAIL_FROM_ADDRESS: alerts@securasnmp.local
+    volumes:
+      - poller-beats:/var/www/html/storage/app/pollers
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  app2:
+    image: ghcr.io/securaitllc/securasnmp:latest
+    pull_policy: always
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    environment:
+      APP_ROLE: web
+      MIGRATE: "0"                 # replica — never migrates
+      APP_KEY: ${APP_KEY}
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: ${APP_URL}
+      SESSION_SECURE_COOKIE: "true"
+      TRAP_COMMUNITY: ${TRAP_COMMUNITY}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: securasnmp
+      DB_USERNAME: securasnmp
+      DB_PASSWORD: ${DB_PASSWORD}
+      CACHE_STORE: redis
+      SESSION_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS}
+      SESSION_DOMAIN: ${SESSION_DOMAIN}
+      CORS_ALLOWED_ORIGINS: ${APP_URL}
+      MAIL_MAILER: log
+      MAIL_FROM_ADDRESS: alerts@securasnmp.local
+    volumes:
+      - poller-beats:/var/www/html/storage/app/pollers
+    depends_on:
+      app:
+        condition: service_healthy
+
+  pollers:
+    image: ghcr.io/securaitllc/securasnmp:latest
+    pull_policy: always
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    ports:
+      - "${BIND_IP}:162:162/udp"
+      - "${BIND_IP}:514:514/udp"
+    environment:
+      APP_ROLE: pollers
+      APP_KEY: ${APP_KEY}
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: ${APP_URL}
+      SESSION_SECURE_COOKIE: "true"
+      TRAP_COMMUNITY: ${TRAP_COMMUNITY}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: securasnmp
+      DB_USERNAME: securasnmp
+      DB_PASSWORD: ${DB_PASSWORD}
+      CACHE_STORE: redis
+      SESSION_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      SANCTUM_STATEFUL_DOMAINS: ${SANCTUM_STATEFUL_DOMAINS}
+      SESSION_DOMAIN: ${SESSION_DOMAIN}
+      CORS_ALLOWED_ORIGINS: ${APP_URL}
+      MAIL_MAILER: log
+      MAIL_FROM_ADDRESS: alerts@securasnmp.local
+      POLL_NEXTHOP_SECONDS: "90"
+      POLL_INTERFACE_SECONDS: "90"
+      POLL_EDGECONNECT_SECONDS: "90"
+    volumes:
+      - poller-beats:/var/www/html/storage/app/pollers
+    depends_on:
+      mysql:
+        condition: service_healthy
+      app:
+        condition: service_started
+
+  # Dedicated queue workers — alert/notification/discovery jobs, off the pollers.
+  worker:
+    image: ghcr.io/securaitllc/securasnmp:latest
+    pull_policy: always
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    environment:
+      APP_ROLE: worker
+      QUEUE_WORKERS: "8"
+      APP_KEY: ${APP_KEY}
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: ${APP_URL}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: securasnmp
+      DB_USERNAME: securasnmp
+      DB_PASSWORD: ${DB_PASSWORD}
+      CACHE_STORE: redis
+      SESSION_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      MAIL_MAILER: log
+      MAIL_FROM_ADDRESS: alerts@securasnmp.local
+    volumes:
+      - poller-beats:/var/www/html/storage/app/pollers
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      app:
+        condition: service_started
+
+  goflow2:
+    image: netsampler/goflow2:v2.2.1
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    command: ["-listen=sflow://:6343,netflow://:2055,netflow://:4739", "-format=json", "-transport=file", "-transport.file=/flows/flows.ndjson"]
+    ports:
+      - "${BIND_IP}:6343:6343/udp"
+      - "${BIND_IP}:2055:2055/udp"
+      - "${BIND_IP}:4739:4739/udp"
+    volumes:
+      - flow-spool:/flows
+
+  flows:
+    image: ghcr.io/securaitllc/securasnmp:latest
+    pull_policy: always
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    environment:
+      APP_ROLE: flows
+      APP_KEY: ${APP_KEY}
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: ${APP_URL}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: securasnmp
+      DB_USERNAME: securasnmp
+      DB_PASSWORD: ${DB_PASSWORD}
+      CACHE_STORE: redis
+      SESSION_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      FLOW_GOFLOW_FILE: /flows/flows.ndjson
+      # Raw-flow retention in DAYS (rollups keep the long view: hourly 30d, daily 13mo).
+      FLOW_RAW_DAYS: "${FLOW_RAW_DAYS:-7}"
+    volumes:
+      - flow-spool:/flows
+      - poller-beats:/var/www/html/storage/app/pollers
+    depends_on:
+      mysql:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+    # Persist to disk so cache/queue survive a restart; cap memory generously.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEM:-4gb}", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+    # InnoDB memory: default 128MB is far too small once flow tables hold millions of rows.
+    # DB_BUFFER_POOL defaults to 8G; on this host set it to 32G in the stack env.
+    command:
+      - "--innodb-buffer-pool-size=${DB_BUFFER_POOL:-8G}"
+      - "--innodb-buffer-pool-instances=8"
+      - "--innodb-redo-log-capacity=1G"
+      - "--innodb-read-io-threads=8"
+      - "--innodb-write-io-threads=8"
+      - "--innodb-io-capacity=2000"
+      - "--innodb-flush-neighbors=0"
+      - "--max-connections=500"
+    environment:
+      MYSQL_DATABASE: securasnmp
+      MYSQL_USER: securasnmp
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+    environment:
+      DOCKER_API_VERSION: "1.40"
+      REPO_USER: ${WATCHTOWER_REPO_USER:-w1s3f0x404}
+      REPO_PASS: ${GITHUB_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --label-enable --cleanup --interval 3600
+
+configs:
+  caddyfile:
+    content: |
+      {
+        default_sni {$$APP_DOMAIN}
+      }
+      {$$APP_DOMAIN}:{$$HTTPS_PORT} {
+        bind 0.0.0.0
+        encode gzip
+        reverse_proxy app:8000 app2:8000 {
+          header_up X-Forwarded-Proto https
+          header_up X-Forwarded-For {remote_host}
+          lb_policy round_robin
+        }
+      }
+
+volumes:
+  mysql-data:
+  caddy-data:
+  caddy-config:
+  poller-beats:
+  flow-spool:
+  redis-data:
