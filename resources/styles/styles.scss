@@ -1,0 +1,232 @@
+// Write your overrides
+
+// ── App-wide filter controls ─────────────────────────────────────────────
+// One consistent filter style for every filter in the app (alarm history,
+// findings, …): a row of colour-coded chips. Chips size to their own label so
+// text never overlaps; tonal when off, filled with their colour when on.
+.app-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+
+  .v-chip {
+    cursor: pointer;
+    font-weight: 600;
+    letter-spacing: normal;
+  }
+}
+
+// One consistent SEGMENTED-toggle style for every range/time/metric filter in
+// the app (interface graph, reports, …): a compact dark segmented control, the
+// active segment tinted with the primary colour. Apply `class="seg-toggle"` to a
+// VBtnToggle (density=comfortable, variant=outlined, mandatory, divided). Add
+// `seg-toggle--wide` when segments carry an icon + longer label.
+.seg-toggle {
+  block-size: 34px;
+  flex: none;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+
+  .v-btn {
+    block-size: 34px;
+    min-inline-size: 72px;
+    padding-inline: 14px;
+    white-space: nowrap;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    border: none;
+    border-radius: 0;
+    color: rgb(var(--v-theme-on-surface));
+    opacity: 0.7;
+  }
+  .v-btn .v-icon { font-size: 15px; margin-inline-end: 4px; }
+  .v-btn--active {
+    background: rgba(var(--v-theme-primary), 0.16);
+    color: rgb(var(--v-theme-primary));
+    opacity: 1;
+  }
+  .v-btn:not(:last-child) {
+    border-inline-end: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  }
+}
+.seg-toggle--wide .v-btn { min-inline-size: 92px; }
+.seg-toggle--narrow .v-btn { min-inline-size: 48px; }
+
+// ─────────────────────────────────────────────────────────────────────────
+// UNIFIED TOGGLE — ONE style for every view / range / filter toggle in the app:
+// a pill track with a solid primary-filled active segment (reads on/off from
+// across a NOC). Three entry classes share this single definition so existing
+// markup stays untouched:
+//   .switch-toggle — plain <button>s, active gets `.on`   (view switches)
+//   .list-pills    — list-page filters, <button class="list-pill">, active `.list-pill--on`
+//   .range-pills   — a VBtnToggle (variant=outlined, mandatory), active `.v-btn--active`
+// Real radios / switches in settings & user dialogs are form controls, NOT
+// toggles — they are left to Vuetify.
+.switch-toggle,
+.list-pills,
+.range-pills {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  max-inline-size: 100%;
+  overflow-x: auto;
+  background: rgba(var(--v-theme-on-surface), 0.05);
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+  block-size: auto;
+  flex: none;
+}
+
+.switch-toggle button,
+.list-pills .list-pill,
+.range-pills .v-btn {
+  border: 0;
+  background: transparent;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  border-radius: 999px !important;
+  padding: 5px 15px;
+  min-inline-size: 0;
+  block-size: auto;
+  opacity: 1;
+  box-shadow: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+.switch-toggle button .v-icon,
+.list-pills .list-pill .v-icon,
+.range-pills .v-btn .v-icon { font-size: 14px; }
+
+.switch-toggle button.on,
+.list-pills .list-pill--on,
+.range-pills .v-btn--active {
+  background: rgb(var(--v-theme-primary));
+  color: #04140a;
+}
+
+// Status / severity dot inside a filter toggle segment.
+.list-pill__d { inline-size: 7px; block-size: 7px; border-radius: 50%; flex: none; }
+
+// A surface card sitting directly under a ListTabs strip — square off the top-start
+// corner so the active tab reads as continuous with the card.
+.list-surface { border-start-start-radius: 0 !important; }
+
+/* --- shared sectioned editor dialog (circuits / devices / sites) --- */
+.ce { display: flex; flex-direction: column; max-height: 88vh; }
+.ce-head { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid rgba(var(--v-theme-on-surface), .1); }
+.ce-ic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; background: rgba(var(--v-theme-primary), .14); color: rgb(var(--v-theme-primary)); }
+.ce-title h2 { font-size: 18px; font-weight: 800; letter-spacing: -.01em; margin: 0; line-height: 1.2; }
+.ce-title p { margin: 1px 0 0; font-size: 12.5px; color: rgba(var(--v-theme-on-surface), .6); }
+.ce-x { margin-left: auto; }
+.ce-body { display: grid; grid-template-columns: 178px 1fr; min-height: 0; flex: 1; }
+.ce-rail { border-right: 1px solid rgba(var(--v-theme-on-surface), .1); padding: 12px 8px; background: rgba(var(--v-theme-on-surface), .02); }
+.ce-rail-btn { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; border: 0; background: none; font: inherit; font-size: 13px; font-weight: 600; color: rgba(var(--v-theme-on-surface), .6); padding: 9px 10px; border-radius: 8px; cursor: pointer; }
+.ce-rail-btn:hover { color: rgb(var(--v-theme-on-surface)); }
+.ce-rail-btn.on { background: rgb(var(--v-theme-surface)); color: rgb(var(--v-theme-on-surface)); box-shadow: 0 1px 2px rgba(0,0,0,.1); }
+.ce-rail-n { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font-size: 11px; font-family: 'IBM Plex Mono', monospace; background: rgba(var(--v-theme-on-surface), .1); color: rgba(var(--v-theme-on-surface), .6); }
+.ce-rail-btn.on .ce-rail-n { background: rgb(var(--v-theme-primary)); color: #fff; }
+.ce-content { padding: 18px 22px 8px; overflow-y: auto; }
+.ce-sect { margin-bottom: 24px; scroll-margin-top: 8px; }
+.ce-sh { display: flex; align-items: baseline; gap: 9px; }
+.ce-sh h3 { font-size: 14.5px; font-weight: 750; margin: 0; letter-spacing: -.01em; }
+.ce-num { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: rgba(var(--v-theme-on-surface), .4); }
+.ce-sub { font-size: 12px; color: rgba(var(--v-theme-on-surface), .55); margin: 2px 0 12px; }
+.ce-flabel { font-size: 11.5px; font-weight: 500; color: rgba(var(--v-theme-on-surface), .7); margin-bottom: 6px; }
+/* Choice fields in these dialogs use plain Vuetify VSelect dropdowns — the app's
+   one form-control convention. No custom segmented-toggle style here. */
+.ce-cond { border-left: 2px solid rgba(var(--v-theme-primary), .5); padding: 4px 0 4px 14px; margin-top: 2px; }
+.ce-cond-lbl { font-size: 11.5px; color: rgb(var(--v-theme-primary)); font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.ce-mono input { font-family: 'IBM Plex Mono', monospace; }
+.ce-foot { display: flex; align-items: center; gap: 10px; padding: 13px 20px; border-top: 1px solid rgba(var(--v-theme-on-surface), .1); background: rgba(var(--v-theme-on-surface), .02); }
+.ce-status { font-size: 12px; color: rgba(var(--v-theme-on-surface), .6); margin-right: auto; }
+@media (max-width: 640px) { .ce-body { grid-template-columns: 1fr; } .ce-rail { display: none; } }
+
+/* ---------------------------------------------------------------------------
+   Right-side editor drawer.
+   EVERY create/edit form in Nodus slides in from the right — never a centered
+   modal. Apply with:
+     <VDialog transition="slide-x-reverse-transition" content-class="nodus-drawer" scrollable>
+   The rules below make a plain VCard fill the drawer on its own: the card
+   becomes a full-height column, its VCardText scrolls, and VCardActions pins to
+   the bottom — so a form written for a modal needs no other change.
+   Use `nodus-drawer nodus-drawer--sm` for short forms (one or two fields).
+--------------------------------------------------------------------------- */
+.v-overlay__content.nodus-drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  height: 100%;
+  max-height: 100%;
+  width: 640px;
+  max-width: 100%;
+  margin: 0;
+  border-radius: 0;
+}
+.v-overlay__content.nodus-drawer--sm { width: 460px; }
+
+.v-overlay__content.nodus-drawer > .v-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: 100%;
+  border-radius: 0;
+}
+/* The scrolling middle: whichever of these the form uses becomes the scroll area. */
+.v-overlay__content.nodus-drawer > .v-card > .v-card-text { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+/* Header and footer stay put while the middle scrolls. */
+.v-overlay__content.nodus-drawer > .v-card > .v-card-item,
+.v-overlay__content.nodus-drawer > .v-card > .v-card-title,
+.v-overlay__content.nodus-drawer > .v-card > .v-card-actions { flex-shrink: 0; }
+
+/* Editors built on the .ce-* skeleton (site, device, circuit): the shared rules
+   lay the section rail out as a 178px LEFT column, too wide for a 640px drawer.
+   Inside a drawer the body is a single column and the rail becomes a horizontal
+   chip bar above the scrolling content. */
+.nodus-drawer .ce-form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.nodus-drawer .ce-body { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.nodus-drawer .ce-rail {
+  display: flex;
+  gap: 7px;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), .1);
+  background: rgba(var(--v-theme-on-surface), .02);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+.nodus-drawer .ce-rail-btn {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  border: 1px solid rgba(var(--v-theme-on-surface), .16);
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgba(var(--v-theme-on-surface), .6);
+  padding: 7px 13px;
+  border-radius: 16px;
+  cursor: pointer;
+}
+.nodus-drawer .ce-rail-btn:hover { color: rgb(var(--v-theme-on-surface)); }
+.nodus-drawer .ce-rail-btn.on { background: rgba(var(--v-theme-primary), .14); color: rgb(var(--v-theme-primary)); border-color: transparent; }
+.nodus-drawer .ce-rail-n { display: none; }
+.nodus-drawer .ce-content { padding: 18px 22px 8px; overflow-y: auto; flex: 1; }
+/* .ce sets max-height:88vh for the old modal — a drawer is full height. */
+.nodus-drawer > .v-card.ce { max-height: 100%; height: 100%; }
+@media (max-width: 640px) { .nodus-drawer .ce-rail { display: flex; padding: 10px 14px; } }
+
+@media (max-width: 680px) {
+  .v-overlay__content.nodus-drawer,
+  .v-overlay__content.nodus-drawer--sm { width: 100%; }
+}
