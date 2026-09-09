@@ -1,0 +1,45 @@
+name: build-image
+
+# Publishes the app container image to GitHub Container Registry so it can be
+# referenced by image: in Portainer (which cannot build from a Dockerfile).
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/securaitllc/securasnmp:latest
+            ghcr.io/securaitllc/securasnmp:${{ github.ref_name }}
+
+      # OSINT enumeration sidecar (enum/) — its own image so Portainer can pull it
+      # with image: (it cannot build from a Dockerfile).
+      - name: Build and push enum sidecar
+        uses: docker/build-push-action@v6
+        with:
+          context: ./enum
+          push: true
+          tags: |
+            ghcr.io/securaitllc/securasnmp-enum:latest
+            ghcr.io/securaitllc/securasnmp-enum:${{ github.ref_name }}
