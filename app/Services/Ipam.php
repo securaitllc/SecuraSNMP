@@ -1,0 +1,1423 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\ArpEntry;
+use App\Models\Circuit;
+use App\Models\Device;
+use App\Models\InterfaceAddress;
+use App\Models\IpPrefix;
+use App\Models\IpReservation;
+use App\Models\LldpNeighbor;
+use App\Models\MacAddress;
+use App\Models\Site;
+use App\Support\NetworkInterface;
+use Illuminate\Support\Collection;
+
+/**
+ * IP address management, derived from what the network actually reports.
+ *
+ * Two kinds of range live here and they come from different places:
+ *
+ *  - WAN ranges are RECORDED. Each circuit carries the subnet and gateway the ISP
+ *    allocated, so those are read straight off the circuit.
+ *  - LAN ranges are OBSERVED. Almost none are written down, but every appliance ARP
+ *    table says exactly which addresses are live behind it, so the range is inferred
+ *    from the addresses actually seen at each site.
+ *
+ * The observed half is deliberate. The obvious shortcut — assume a site's LAN is
+ * 10.200.<site number>.0/24 — is wrong on this fleet: 10.200.77.0/24 serves site #106,
+ * and co-located service centres SHARE one LAN (10.200.56.0/24 carries #041, #056 and
+ * #209 together). Computing the range from the site number would invent addressing
+ * that does not exist and miss the sharing entirely, so nothing here does that.
+ *
+ * Aggregation happens in PHP rather than SQL on purpose: splitting an address into
+ * octets needs SUBSTRING_INDEX on MySQL and a different expression on SQLite, and
+ * that divergence has produced production-only failures in this codebase before.
+ * The row counts are small enough (~13k distinct addresses) that portability wins.
+ */
+class Ipam
+{
+    /** An address unseen for this long is stale — reported, but never counted as live. */
+    public const FRESH_HOURS = 24;
+
+    /**
+     * How long a switch-port sighting stays current.
+     *
+     * The FDB poll runs every 15 minutes (POLL_MAC_SECONDS), so two hours is eight
+     * missed cycles — well past a transient walk failure, well short of pretending a
+     * MAC learned last week is still plugged in. Beyond this the port is reported as
+     * where the endpoint WAS, never where it is.
+     */
+    public const PORT_FRESH_HOURS = 2;
+
+    /** The corporate supernet the planner allocates new site LANs from. */
+    public const SUPERNET = '10.200.0.0/16';
+
+    /**
+     * Blocks that are locally significant at every site rather than allocated once.
+     *
+     * 192.168.255.0/24 lives at 127 of the 131 sites and 192.168.1.0/24 at 40. They are
+     * not advertised via BGP, so the same numbers are reused independently behind every
+     * appliance. Treating them as one range would claim 127 sites "share" it, report an
+     * impossible occupancy, and — worst — imply conflicts between hosts that can never
+     * see each other. They are not allocatable space and must never be planned from.
+     */
+    private const SITE_LOCAL_BLOCKS = ['192.168.'];
+
+    /**
+     * A range seen at more than this many sites cannot be a single allocation.
+     *
+     * Co-located service centres genuinely do share one LAN, but only a handful at a
+     * time — the most any 10.200 range reaches is 3. Anything far beyond that is the
+     * same numbers reused locally, so this catches locally-significant blocks that are
+     * not in the declared list above.
+     */
+    private const SITE_LOCAL_MIN_SITES = 5;
+
+    /**
+     * Above this share of a range's addresses at ONE site, it is that site's LAN.
+     *
+     * The site-count test on its own is not enough: eleven gateways each holding a
+     * single stray ARP entry for an address at HQ made HQ's 271-host corporate LAN
+     * look locally significant. A block that is genuinely reused per site spreads
+     * evenly across them; one that does not is a routed range with strays around it.
+     */
+    private const SITE_LOCAL_MAX_SHARE = 0.5;
+
+    /**
+     * ARP entries whose MAC is all zeroes (or broadcast) are INCOMPLETE resolutions —
+     * the gateway asked, nothing answered, and the failure was cached. Reading one as
+     * an occupied address is how a genuinely free address gets skipped: 131.148.15.198
+     * showed as taken on exactly this.
+     */
+    private const NULL_MACS = ['00:00:00:00:00:00', 'FF:FF:FF:FF:FF:FF'];
+
+    /**
+     * Above this many addresses, one MAC stops identifying a host.
+     *
+     * One MAC covering several addresses is normal: a firewall proxy-ARPs for its NAT
+     * pools, and at HQ a FortiGate answers for .194, .200 and .213. That MAC resolves
+     * to a device we can SEE holding one of those addresses, so it is exempt however
+     * many it covers — the cap is not about the count alone.
+     *
+     * What the cap catches on this fleet is DUPLICATE MACs. D4:A2:CD:4E:9B:78 answers
+     * on 97 addresses spread over 7 sites and 8 switch ports — Leesburg, Kissimmee,
+     * Clermont, Winter Haven, Eustis, Lakeland — which no single NIC can do. Several
+     * more Dell MACs behave the same way, together covering roughly 500 addresses, all
+     * on the WORKSTATIONS_PRINTERS VLAN.
+     *
+     * What this flag does NOT mean is that the addresses are empty. Every one of them
+     * answered ARP inside the last day, so they are occupied by something real; we
+     * just cannot say what. They are counted as used and labelled unverified. Treating
+     * them as unoccupied read a genuinely full /24 as a fifth full, which is precisely
+     * how somebody plans a deployment into a subnet with no room left.
+     */
+    private const MAX_ADDRESSES_PER_MAC = 8;
+
+    /**
+     * THE definition of which addresses cannot be counted as occupancy.
+     *
+     * This existed three times — the range list, the range detail and the supernet
+     * map each decided "how full is this" their own way, so 10.200.77.0/24 read 21%
+     * green in one view, "49 free of 254" in another and amber "busy" at 81% in the
+     * third, off identical data. Fixing one never fixed the others. Every view now
+     * calls this, so a range cannot be full in one place and empty in another.
+     *
+     * @param  array<string, array<string, true>>  $byMac  mac => the addresses it answered for
+     * @param  array<string, true>  $known  addresses known from configuration, not observation
+     * @return array<string, string> address => the MAC that answered for it, so a
+     *                               caller can name the culprit as well as count
+     */
+    public static function unidentifiable(array $byMac, array $known): array
+    {
+        $out = [];
+        foreach ($byMac as $mac => $ips) {
+            // A MAC we can tie to a device we can see is exempt however many addresses
+            // it covers — a FortiGate legitimately answers for its NAT pool.
+            if (count($ips) > self::MAX_ADDRESSES_PER_MAC && ! array_intersect_key($ips, $known)) {
+                foreach ($ips as $ip => $_) {
+                    $out[$ip] = (string) $mac;
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * How full a range is: what answered recently AND can be identified, plus what is
+     * known from configuration. Never usable-minus-free, and never the all-time count.
+     *
+     * @param  array<string, true>  $fresh  answered inside FRESH_HOURS
+     * @param  array<string, true>  $unidentifiable  from unidentifiable()
+     * @param  array<string, true>  $known  device addresses and hand-recorded reservations
+     */
+    public static function confirmedCount(array $fresh, array $unidentifiable, array $known): int
+    {
+        // A device never ARPs its own address and a reservation may answer nothing at
+        // all, so configuration is added rather than intersected.
+        return count(array_diff_key($fresh, $unidentifiable))
+            + count(array_diff_key($known, $fresh));
+    }
+
+    /**
+     * Juniper's internal control-plane interface (bme0) carries 128.0.0.1/2 on every
+     * box — 167 of them here, all the same address. It is internal plumbing, not
+     * allocatable space, and belongs no more in an IPAM than the loopback does.
+     */
+    private const INTERNAL_BLOCKS = ['128.0.'];
+
+    /** Enumerating free addresses is bounded; a /24 is 254 rows, a /16 would be 65k. */
+    private const MAX_ENUMERATED = 1024;
+
+    /**
+     * Which site owns a range is decided by where its DEVICES are addressed, never by
+     * how much ARP a gateway happens to hold.
+     *
+     * A gateway keeps ARP for addresses in other sites' ranges — traffic crossing the
+     * SD-WAN fabric leaves traces, and they are not small: 10.200.2.0/24 shows 61
+     * addresses at #001 against 56 at #113, yet it belongs to #113, whose appliance and
+     * switch are addressed inside it. Counting addresses gets that backwards, and a
+     * share threshold called it "shared" by both.
+     *
+     * Across all 31 contested ranges on this fleet, exactly one site has devices inside
+     * each — so a range has one owner. Two sites genuinely addressed inside the same
+     * range would be real sharing and both are kept, but that does not occur here.
+     */
+
+    /**
+     * Circuits whose recorded subnet is not a CIDR — a bare netmask, say. They cannot
+     * be placed on the map, and dropping them quietly would understate WAN coverage
+     * with nothing on screen to explain the gap, so they are counted and reported.
+     */
+    private int $unreadableWan = 0;
+
+    /**
+     * Every range the fleet uses, grouped by the site that owns it.
+     *
+     * @return array{sites: array, summary: array}
+     */
+    public function ranges(?int $siteId = null): array
+    {
+        // ALWAYS computed across the whole fleet, then filtered.
+        //
+        // Which site owns a range, and whether a block is locally significant at all,
+        // are both fleet-wide questions: they are answered by comparing what every site
+        // holds. Narrowing the query first made the per-site page answer them from a
+        // set of one, so a branch holding a single stray ARP entry for an address in
+        // HQ's LAN was shown owning that whole /23 — while the fleet page, correctly,
+        // showed it at HQ. One rule giving two answers depending on which screen asked
+        // is the failure this codebase keeps paying for.
+        $sites = Site::query()->orderBy('name')->get()->keyBy('id');
+
+        $wan = $this->wanRanges($sites->keys()->all());
+        $lan = $this->lanRanges($sites->keys()->all());
+
+        if ($siteId !== null) {
+            $sites = $sites->filter(fn (Site $s) => $s->id === $siteId);
+        }
+
+        $out = [];
+        foreach ($sites as $site) {
+            $ranges = array_merge($wan[$site->id] ?? [], $lan[$site->id] ?? []);
+            if ($ranges === []) {
+                continue;
+            }
+
+            // Worst state on any of its ranges decides how the site reads.
+            $worst = 'ok';
+            foreach ($ranges as $r) {
+                if ($r['state'] === 'critical') {
+                    $worst = 'critical';
+                } elseif ($r['state'] === 'warning' && $worst !== 'critical') {
+                    $worst = 'warning';
+                }
+            }
+
+            $out[] = [
+                'site_id' => $site->id,
+                'site_number' => $site->site_number,
+                'site_name' => $site->name,
+                'address' => $site->address,
+                'state' => $worst,
+                'ranges' => $ranges,
+            ];
+        }
+
+        return ['sites' => $out, 'summary' => $this->summary($out)];
+    }
+
+    /**
+     * WAN ranges, read off the circuits. A /30 sitting at 2 of 2 addresses is not
+     * "full" in any meaningful sense — that is simply what a point-to-point link is —
+     * so those are never flagged, however high the percentage reads.
+     *
+     * @return array<int, array<int, array>>
+     */
+    private function wanRanges(array $siteIds): array
+    {
+        $out = [];
+        $circuits = Circuit::query()
+            ->whereIn('site_id', $siteIds)
+            ->whereNotNull('subnet')
+            ->where('subnet', '!=', '')
+            ->with('ispProvider')
+            ->get();
+
+        foreach ($circuits as $c) {
+            $net = self::parseCidr($c->subnet);
+            if ($net === null) {
+                $this->unreadableWan++;
+
+                continue;
+            }
+            $usable = self::usableAddresses($net['prefix']);
+            $pointToPoint = $net['prefix'] >= 30;
+
+            // Real occupancy where we have it: the addresses actually configured on
+            // device interfaces inside this block. A /30 has nothing to count, but a
+            // /27 handed to HQ does — and that is the block someone is about to
+            // allocate from.
+            // Everything known to occupy the block: interface addresses AND the
+            // hand-recorded ones. A firewall NAT pool is real consumption that no
+            // protocol reports, so leaving it out understates how full a block is.
+            $configured = $this->addressesInside($c->subnet);
+            $reserved = $this->reservationsInside($c->subnet);
+            $occupied = array_unique(array_merge(
+                array_map(fn ($a) => $a->ip, $configured),
+                array_map(fn ($r) => $r->ip, $reserved),
+            ));
+            $seen = $pointToPoint ? min(2, $usable) : count($occupied);
+
+            $out[$c->site_id][] = [
+                'cidr' => $c->subnet,
+                'kind' => 'wan',
+                'label' => $c->circuit_id,
+                'gateway' => $c->gateway_ip,
+                'isp' => $c->isp_name,
+                'lec' => $c->lec_name,
+                'circuit_id' => $c->id,
+                'circuit_type' => $c->circuit_type,
+                'usable' => $usable,
+                'seen' => $seen,
+                'pct' => $usable > 0 ? (int) round(min($seen, $usable) / $usable * 100) : 0,
+                'shared_with' => [],
+                'scope' => 'routed',
+                'state' => $pointToPoint ? 'ok' : ($usable > 0 && $seen / $usable >= 0.85 ? 'critical' : ($usable > 0 && $seen / $usable >= 0.7 ? 'warning' : 'ok')),
+                'note' => $pointToPoint ? 'Point-to-point link' : null,
+                'recorded' => true,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * LAN ranges, inferred from the addresses each site's appliances actually ARP for.
+     *
+     * A /24 that turns up at more than one site is ONE range shared between them, not
+     * a coincidence — co-located service centres sit behind the same appliance. It is
+     * reported against every site it serves, each carrying the others in shared_with.
+     *
+     * @return array<int, array<int, array>>
+     */
+    private function lanRanges(array $siteIds): array
+    {
+        $fresh = now()->subHours(self::FRESH_HOURS);
+
+        // Where an operator has recorded the real mask, it decides the bucket instead
+        // of the assumed /24. Built here as a local rather than memoised on the
+        // instance: this service is also constructed inside long-running work, and a
+        // prefix somebody just corrected must not be answered from a stale cache.
+        $bucketOf = self::bucketer();
+
+        // /24 => site_id => set of addresses
+        $byNet = [];
+        ArpEntry::query()
+            ->whereIn('site_id', $siteIds)
+            ->select(['ip', 'site_id', 'mac', 'last_seen_at'])
+            ->orderBy('id')
+            ->chunk(5000, function (Collection $rows) use (&$byNet, $fresh, $bucketOf) {
+                foreach ($rows as $r) {
+                    if (! self::isPrivate($r->ip) || self::isIncomplete($r->mac)) {
+                        continue;   // WAN-side neighbours belong to the circuit, not a LAN
+                    }
+                    $net = $bucketOf($r->ip);
+                    if ($net === null) {
+                        continue;
+                    }
+                    $byNet[$net][$r->site_id]['ips'][$r->ip] = true;
+                    // Which MAC answered, so a single MAC blanketing the range can be
+                    // recognised below and kept out of the occupancy figure.
+                    $byNet[$net][$r->site_id]['mac'][$r->ip] = $r->mac;
+                    if ($r->last_seen_at && $r->last_seen_at->greaterThanOrEqualTo($fresh)) {
+                        $byNet[$net][$r->site_id]['fresh'][$r->ip] = true;
+                    }
+                }
+            });
+
+        // A device's own management address counts as occupancy even if nothing ARPed it.
+        foreach (Device::whereIn('site_id', $siteIds)->whereNotNull('ip_address')->get(['ip_address', 'site_id']) as $d) {
+            if (! self::isPrivate($d->ip_address)) {
+                continue;
+            }
+            $net = $bucketOf($d->ip_address);
+            if ($net !== null) {
+                // A device we poll is live by definition — it does not ARP itself, so
+                // it would otherwise be counted as history and never as occupancy.
+                $byNet[$net][$d->site_id]['ips'][$d->ip_address] = true;
+                $byNet[$net][$d->site_id]['fresh'][$d->ip_address] = true;
+            }
+        }
+
+        $recorded = Site::whereIn('id', $siteIds)->whereNotNull('subnet')->where('subnet', '!=', '')
+            ->pluck('subnet', 'id')->all();
+
+        // A device addressed inside a range is the strongest ownership signal there is:
+        // the site's own appliance and switch sit in its LAN.
+        $deviceOwners = [];
+        foreach (Device::whereIn('site_id', $siteIds)->whereNotNull('ip_address')->get(['ip_address', 'site_id']) as $d) {
+            $net = $bucketOf($d->ip_address);
+            if ($net !== null) {
+                $deviceOwners[$net][$d->site_id] = true;
+            }
+        }
+
+        // Every address we can actually place on a device, either as its management
+        // address or as one configured on an interface. A MAC answering for one of
+        // these is a gateway doing its job — a firewall proxy-ARPing its NAT pools —
+        // and stays exempt from the cap however many addresses it covers.
+        $knownIps = Device::whereNotNull('ip_address')->pluck('ip_address')
+            ->merge(self::allocatableInterfaceAddresses())
+            ->flip()->all();
+
+        $out = [];
+        foreach ($byNet as $cidr => $perSite) {
+            // Decided from the FULL set, before any ownership collapse. A site-local
+            // block exists independently at many sites by definition, so the count of
+            // sites holding it is the evidence — and reading that count after the
+            // collapse below made it 1, which is the answer the test is looking for.
+            $siteLocal = self::isSiteLocalRange(
+                $cidr,
+                array_map(fn ($d) => count($d['ips'] ?? []), $perSite),
+                array_keys(array_intersect_key($deviceOwners[$cidr] ?? [], $perSite)),
+            );
+
+            // Ownership is decided by device addressing, which is authoritative. Only
+            // when no device sits inside the range at all does the busiest gateway win,
+            // and then exactly one does — never a set.
+            //
+            // NOT applied to a site-local block. 192.168.100.0/24 is the cable modems'
+            // management subnet and every site has one; collapsing it to a single owner
+            // put ~12 sites' modems under #005 Ocala, where the detail view then listed
+            // all twelve MACs — Commscope, Vantiva, Netgear — as if they were hosts at
+            // that one site. A site was nearly contained over it.
+            if (! $siteLocal && count($perSite) > 1) {
+                $owners = array_keys($deviceOwners[$cidr] ?? []);
+                $owners = array_values(array_intersect($owners, array_keys($perSite)));
+
+                if ($owners === []) {
+                    $counts = array_map(fn ($d) => count($d['ips'] ?? []), $perSite);
+                    arsort($counts);
+                    $owners = [array_key_first($counts)];
+                }
+
+                $perSite = array_intersect_key($perSite, array_flip($owners));
+            }
+            if ($perSite === []) {
+                continue;
+            }
+
+            $siteList = array_keys($perSite);
+
+            foreach ($perSite as $sid => $data) {
+                // Utilisation is what is LIVE, never everything ever recorded.
+                //
+                // ARP history accumulates: a DHCP client on .50 today and .120 tomorrow
+                // leaves two addresses behind permanently, so an all-time count climbs
+                // toward "full" no matter how empty the range really is. #106 read
+                // "filling up" at 204/254 while most of those addresses had not answered
+                // in days. The historical figure is still reported — it is useful — but
+                // it must not drive the percentage or the state.
+                // A MAC answering for more of a range than any one host plausibly
+                // holds means the IDENTITY is untrustworthy — it does NOT mean the
+                // addresses are empty, and it does NOT mean they are full either.
+                //
+                // Massey's fleet carries duplicate Dell MACs: D4:A2:CD:4E:99:F4 alone
+                // answers on 151 addresses of 10.200.77.0/24, all learned on ONE access
+                // port (ge-0/0/22), and D4:A2:CD:60:D2:09 on 130 of 10.200.54.0/24. No
+                // single NIC holds 151 addresses on one port. Something replied, so the
+                // addresses are not demonstrably free — but nothing establishes a host
+                // at any of them either.
+                //
+                // These used to drive the percentage, which painted both of those /24s
+                // amber "Filling up" at 72% and 81% when their confirmed occupancy is
+                // 54 of 254. Colour is severity in this app, and "we cannot identify
+                // 151 addresses" is a data-quality problem, not a capacity one. So the
+                // bar and the state come from CONFIRMED occupancy, the unverified count
+                // is reported beside it in full, and neither number hides the other.
+                $byMac = [];
+                foreach ($data['mac'] ?? [] as $ip => $mac) {
+                    $byMac[$mac][$ip] = true;
+                }
+                $unplaceable = self::unidentifiable($byMac, $knownIps);
+
+                // Capacity comes from the range's OWN length. It was hard-coded 254,
+                // which is only right for a /24 — a corrected /23 would have reported
+                // half its addresses and an occupancy percentage twice the truth.
+                $usable = self::usableAddresses(self::parseCidr($cidr)['prefix'] ?? 24);
+
+                $everSeen = count($data['ips'] ?? []);
+                $live = count($data['fresh'] ?? []);
+
+                // Reported against the LIVE set: a duplicate-MAC address that stopped
+                // answering days ago is stale history, not an identity problem now.
+                $unverified = count(array_intersect_key($data['fresh'] ?? [], $unplaceable));
+                // Addresses live AND identifiable. This is what capacity is judged on.
+                $confirmed = max(0, $live - $unverified);
+                $pct = $usable > 0 ? (int) round($confirmed / $usable * 100) : 0;
+
+                $notes = [];
+                if ($siteLocal) {
+                    $notes[] = 'Site-local — not routed, not allocatable';
+                } elseif (count($siteList) > 1) {
+                    $notes[] = 'Shared with '.(count($siteList) - 1).' other site(s)';
+                }
+                if ($unverified > 0) {
+                    $notes[] = $unverified.' more answered by one MAC — something replied, no host identified. '
+                        .'Not counted as capacity; check before allocating here';
+                }
+
+                $out[$sid][] = [
+                    'cidr' => $cidr,
+                    'kind' => 'lan',
+                    'label' => null,
+                    'gateway' => null,
+                    'isp' => null,
+                    'lec' => null,
+                    'circuit_id' => null,
+                    'circuit_type' => null,
+                    'usable' => $usable,
+                    // What the bar and the state are computed from.
+                    'seen' => $confirmed,
+                    // Everything that answered, identifiable or not — the wider figure,
+                    // reported so a range thick with unverified replies is never read
+                    // as empty.
+                    'answered' => $live,
+                    'ever_seen' => $everSeen,
+                    'stale' => max(0, $everSeen - $live),
+                    'unverified' => $unverified,
+                    'pct' => $pct,
+                    // A site-local range is REPEATED at each site, not shared between
+                    // them, so it never carries the other sites as co-owners.
+                    'shared_with' => $siteLocal ? [] : array_values(array_diff($siteList, [$sid])),
+                    'scope' => $siteLocal ? 'site-local' : 'routed',
+                    'state' => $pct >= 85 ? 'critical' : ($pct >= 70 ? 'warning' : 'ok'),
+                    'note' => $notes !== [] ? implode(' · ', $notes) : null,
+                    // Whether anyone wrote this range down — the gap the page exists to close.
+                    'recorded' => ($recorded[$sid] ?? null) === $cidr,
+                ];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Every address inside one range, and what is known about each.
+     *
+     * @return array{cidr: string, rows: array, summary: array}
+     */
+    public function detail(string $cidr, ?int $siteId = null): array
+    {
+        $net = self::parseCidr($cidr);
+        if ($net === null) {
+            return ['cidr' => $cidr, 'rows' => [], 'summary' => []];
+        }
+
+        // SQL narrows by leading octets; membership is then decided exactly. The
+        // pre-filter alone was the whole bug: a /30 listed every address in its /24.
+        $prefixStr = self::sqlPrefix($net);
+        $inNet = fn ($ip) => self::inNetwork($ip, $net);
+
+        $arp = ArpEntry::query()
+            ->when($prefixStr !== '', fn ($q) => $q->where('ip', 'like', $prefixStr.'%'))
+            ->when($siteId, fn ($q, $id) => $q->where('site_id', $id))
+            ->with('device:id,name')
+            ->get(['ip', 'mac', 'site_id', 'device_id', 'interface', 'first_seen_at', 'last_seen_at'])
+            ->filter(fn ($e) => $inNet($e->ip))
+            // An all-zero MAC is a failed resolution, not a host. Counting it occupies
+            // an address that is actually free.
+            ->reject(fn ($e) => self::isIncomplete($e->mac));
+
+        // The switch FDB already knows the port and VLAN for every one of these MACs.
+        // The IP comes from the appliance ARP table and the port from the switch, and
+        // joining them is the whole point — reporting "not on a known device" while
+        // holding the port in another table is a self-inflicted blind spot.
+        $macList = $arp->pluck('mac')->unique()->all();
+
+        $vendors = MacAddress::with(['device:id,name,site_id', 'deviceInterface:id,if_name,status'])
+            ->whereIn('mac', $macList)
+            ->get()
+            ->keyBy('mac');
+
+        // What the endpoint says about itself over LLDP: hostname, and for a Mitel
+        // handset the extension and model it registers with.
+        $lldp = LldpNeighbor::whereIn('remote_mac', $macList)
+            ->orderByDesc('last_seen_at')
+            ->get(['remote_mac', 'remote_sysname', 'extension', 'endpoint_model', 'neighbor_type', 'local_port'])
+            ->unique('remote_mac')
+            ->keyBy('remote_mac');
+
+        // Scoped to the site, like the ARP above. A site-local block repeats across the
+        // fleet, so without this #001 listed four other sites' WAN addresses as its own
+        // — the same "one site's page, every site's data" fault the ARP query had.
+        $devices = Device::whereNotNull('ip_address')
+            ->when($prefixStr !== '', fn ($q) => $q->where('ip_address', 'like', $prefixStr.'%'))
+            ->when($siteId, fn ($q, $id) => $q->where('site_id', $id))
+            ->get(['id', 'name', 'ip_address', 'role', 'site_id'])
+            ->filter(fn ($d) => $inNet($d->ip_address))
+            ->keyBy('ip_address');
+
+        // Addresses configured on a device's own interfaces. These are the ones an
+        // operator most needs before allocating: an HA pair's WAN addresses answer no
+        // ARP of their own and are not any device's single management address, so
+        // without this they looked free.
+        $configured = InterfaceAddress::with(['device:id,name,role,site_id', 'interface:id,if_name'])
+            ->when($prefixStr !== '', fn ($q) => $q->where('ip', 'like', $prefixStr.'%'))
+            ->when($siteId, fn ($q, $id) => $q->whereHas('device', fn ($d) => $d->where('site_id', $id)))
+            ->get()
+            ->filter(fn ($a) => $inNet($a->ip))
+            // A control-plane interface is not a place. em2.32768 carries 192.168.1.2 on
+            // every Juniper chassis by construction, and presenting it as an assignment
+            // read as "a host on a switch port". See App\Support\NetworkInterface.
+            ->reject(fn ($a) => NetworkInterface::isControlPlane(optional($a->interface)->if_name))
+            ->keyBy('ip');
+
+        // Hand-recorded addresses: the firewall NAT pools and VIPs that appear in no
+        // SNMP table. Recorded once, they must never be offered as free again.
+        $reservations = IpReservation::with(['device:id,name', 'site:id,name'])
+            ->when($prefixStr !== '', fn ($q) => $q->where('ip', 'like', $prefixStr.'%'))
+            ->when($siteId, fn ($q, $id) => $q->where('site_id', $id))
+            ->get()
+            ->filter(fn ($r) => $inNet($r->ip))
+            ->keyBy('ip');
+
+        // One IP claimed by two MACs at the same site is a genuine conflict.
+        $byIp = $arp->groupBy('ip');
+
+        // MAC => the device that owns it, where one MAC covers several addresses.
+        $macOwners = [];
+        foreach ($arp->groupBy('mac') as $mac => $entries) {
+            $ips = $entries->pluck('ip')->unique();
+            if ($ips->count() > 1) {
+                $owner = $configured->firstWhere(fn ($c) => $ips->contains($c->ip));
+                $macOwners[$mac] = $owner?->device?->name;
+            }
+        }
+
+        // MACs whose sightings cannot be taken at face value. The rule lives in
+        // unidentifiable() and nowhere else — this view deciding it privately is how
+        // the same range came to read full here and a fifth full in the range list.
+        $knownIps = [];
+        foreach ([$configured->keys(), $devices->keys(), $reservations->keys()] as $set) {
+            foreach ($set as $ip) {
+                $knownIps[$ip] = true;
+            }
+        }
+
+        $byMac = [];
+        foreach ($arp->groupBy('mac') as $mac => $entries) {
+            foreach ($entries->pluck('ip')->unique() as $ip) {
+                $byMac[$mac][$ip] = true;
+            }
+        }
+
+        $unplaceable = [];
+        foreach (array_unique(array_values(self::unidentifiable($byMac, $knownIps))) as $mac) {
+            $unplaceable[$mac] = count($byMac[$mac]);
+        }
+
+        $fresh = now()->subHours(self::FRESH_HOURS);
+
+        $rows = [];
+        foreach ($byIp as $ip => $entries) {
+            $macs = $entries->pluck('mac')->unique()->values();
+            $device = $devices->get($ip);
+            $latest = $entries->sortByDesc('last_seen_at')->first();
+            $vendor = $vendors->get($macs->first());
+
+            $iface = $configured->get($ip);
+
+            $state = 'discovered';
+            if ($macs->count() > 1) {
+                $state = 'conflict';
+            } elseif ($device || $iface) {
+                $state = 'assigned';
+            } elseif (isset($unplaceable[$macs->first()])) {
+                // Answered by a MAC that also answers for much of the range. Something
+                // replied here, so the address is not free — but nothing establishes
+                // that a host lives at it, and saying "discovered" would claim exactly
+                // that. Shown and flagged, never silently counted or silently dropped.
+                $state = 'unverified';
+            }
+
+            // One MAC answering for several addresses in the range is a single device
+            // with secondaries or proxy-ARP — a FortiGate answers for .194, .200 and
+            // .213 here. Attribute them to it rather than listing unknown hosts.
+            $owner = $macOwners[$macs->first()] ?? null;
+            $fdb = $vendors->get($macs->first());
+            $seenBy = $lldp->get($macs->first());
+
+            // A learned port is a claim about NOW, and this table keeps history for 90
+            // days. Three things end the claim, any one of them enough:
+            //   - the poll stopped listing the MAC (absent_since), which is positive
+            //     evidence it left the forwarding table;
+            //   - no poll has confirmed it inside PORT_FRESH_HOURS;
+            //   - the port itself is down, so nothing is reachable through it.
+            // #082 ge-0/0/22 went down at 13:05 and its switching table emptied, yet
+            // 121 addresses still read as living on it. The port is still shown — an
+            // operator needs to know where a host used to be — but it is marked, and
+            // the page says "last seen on" instead of asserting it is there.
+            $portDown = $fdb?->deviceInterface?->status === 'down';
+            $portSeenAt = $fdb?->last_seen_at;
+            $portStale = $fdb === null ? false : (
+                $fdb->absent_since !== null
+                || $portDown
+                || $portSeenAt === null
+                || $portSeenAt->lessThan(now()->subHours(self::PORT_FRESH_HOURS))
+            );
+
+            $rows[] = [
+                'ip' => $ip,
+                'sort' => self::ipSort($ip),
+                'state' => $state,
+                'also_on' => $owner,
+                // How many addresses in this range that same MAC answers for, so the
+                // page can say why the row is unverified instead of just asserting it.
+                'unverified_count' => $unplaceable[$macs->first()] ?? null,
+                'mac' => $macs->count() > 1 ? $macs->implode(', ') : $macs->first(),
+                'vendor' => $vendor?->oui_vendor,
+                // WHICH SIDE of the gateway this was learned on, and by which gateway.
+                //
+                // The single most misread field on this page before it existed. An ARP
+                // entry from a WAN uplink looked exactly like a host on the site LAN,
+                // so every site's cable modem at 192.168.100.1 read as an unknown
+                // device inside the building. The interface answers it outright: an
+                // entry on wan0 is upstream of the site, not in it.
+                'learned_on' => $entries->pluck('interface')->filter()->unique()->values()->all(),
+                'learned_by' => $entries->map(fn ($e) => $e->device?->name)->filter()->unique()->values()->all(),
+                'wan_side' => $entries->contains(fn ($e) => self::isWanInterface($e->interface)),
+                // Where the endpoint physically plugs in.
+                'switch' => $fdb?->device?->name,
+                'switch_port' => $fdb?->deviceInterface?->if_name,
+                'vlan' => $fdb?->vlan ?: null,
+                // When the switch last confirmed this MAC on that port, and whether
+                // that sighting still stands. Never let a stale port read as current.
+                'switch_seen_at' => $portSeenAt,
+                'switch_stale' => $portStale,
+                'switch_port_down' => $portDown,
+                // What it says it is.
+                'hostname' => $seenBy?->remote_sysname,
+                'extension' => $seenBy?->extension,
+                'endpoint_model' => $seenBy?->endpoint_model,
+                'endpoint_kind' => self::endpointKind($vendor?->oui_vendor, $seenBy?->neighbor_type, $seenBy?->endpoint_model),
+                'device_id' => $device?->id ?? $iface?->device_id,
+                'device_name' => $device?->name ?? $iface?->device?->name,
+                'device_role' => $device?->role ?? $iface?->device?->role,
+                'interface' => $iface?->interface?->if_name,
+                'prefix_len' => $iface?->prefix_len,
+                'is_public' => $iface?->is_public ?? false,
+                'first_seen_at' => $latest?->first_seen_at,
+                'last_seen_at' => $latest?->last_seen_at,
+                // Silence is not health: an address nothing has answered for in a day
+                // is reported as stale rather than quietly counted as live.
+                // Only an ARP-discovered address can go stale. One backed by a device
+                // record or a configured interface is known from configuration, and a
+                // device never ARPs its own address.
+                'stale' => ($device || $iface)
+                    ? false
+                    : ($latest?->last_seen_at ? $latest->last_seen_at->lessThan($fresh) : true),
+            ];
+        }
+
+        // A device with an address nothing has ARPed for still belongs in the map.
+        foreach ($devices as $ip => $d) {
+            if (! $byIp->has($ip)) {
+                $rows[] = [
+                    'ip' => $ip, 'sort' => self::ipSort($ip), 'state' => 'assigned',
+                    'mac' => null, 'vendor' => null, 'also_on' => null,
+                    'device_id' => $d->id, 'device_name' => $d->name, 'device_role' => $d->role,
+                    'interface' => $configured->get($ip)?->interface?->if_name,
+                    'switch' => null, 'switch_port' => null, 'vlan' => null,
+                    'switch_seen_at' => null, 'switch_stale' => false, 'switch_port_down' => false,
+                    'hostname' => null, 'extension' => null,
+                    'endpoint_model' => null, 'endpoint_kind' => null,
+                    'prefix_len' => $configured->get($ip)?->prefix_len,
+                    'is_public' => $configured->get($ip)?->is_public ?? false,
+                    'first_seen_at' => null,
+                    'last_seen_at' => $configured->get($ip)?->last_seen_at,
+                    // A device does not ARP itself, so its own management address has no
+                    // sighting — that is not staleness. Only an ARP-discovered address
+                    // can go stale; a configured one is known from the device's own config.
+                    'stale' => false,
+                ];
+            }
+        }
+
+        // The case this feature was built for: a WAN address on an HA appliance answers
+        // no ARP and is not the device's management address, so it would otherwise be
+        // absent from the map — and read as free to the next person allocating.
+        foreach ($configured as $ip => $a) {
+            if ($byIp->has($ip) || $devices->has($ip)) {
+                continue;
+            }
+            $rows[] = [
+                'ip' => $ip, 'sort' => self::ipSort($ip), 'state' => 'assigned',
+                'mac' => null, 'vendor' => null, 'also_on' => null,
+                'device_id' => $a->device_id, 'device_name' => $a->device?->name,
+                'device_role' => $a->device?->role,
+                'interface' => $a->interface?->if_name,
+                'switch' => null, 'switch_port' => null, 'vlan' => null,
+                'switch_seen_at' => null, 'switch_stale' => false, 'switch_port_down' => false,
+                'hostname' => null, 'extension' => null,
+                'endpoint_model' => null, 'endpoint_kind' => null,
+                'prefix_len' => $a->prefix_len,
+                'is_public' => $a->is_public,
+                'first_seen_at' => $a->first_seen_at, 'last_seen_at' => $a->last_seen_at,
+                'stale' => false,
+            ];
+        }
+
+        foreach ($reservations as $ip => $r) {
+            if ($byIp->has($ip) || $devices->has($ip) || $configured->has($ip)) {
+                // Already known from the wire: annotate that row rather than adding a
+                // second line for one address.
+                //
+                // State precedence is conflict > assigned > reserved > discovered. A
+                // firewall proxy-ARPs for its NAT pools, so those addresses carry an ARP
+                // sighting and were reading "discovered" while the identical Lumen pools
+                // — which nothing ARPs — read "reserved". Same kind of allocation, two
+                // different states. A purpose somebody wrote down outranks a bare
+                // sighting; it does NOT outrank a device we can actually see holding the
+                // address, nor a conflict, which is a fault worth surfacing above all.
+                foreach ($rows as &$row) {
+                    if ($row['ip'] !== $ip) {
+                        continue;
+                    }
+                    $row['reservation'] = ['label' => $r->label, 'purpose' => $r->purpose, 'note' => $r->note];
+                    if ($row['state'] === 'discovered') {
+                        $row['state'] = 'reserved';
+                        $row['hostname'] ??= $r->label;
+                    }
+                }
+                unset($row);
+
+                continue;
+            }
+            $rows[] = [
+                'ip' => $ip, 'sort' => self::ipSort($ip), 'state' => 'reserved',
+                'mac' => null, 'vendor' => null, 'also_on' => null,
+                'switch' => null, 'switch_port' => null, 'vlan' => null,
+                'switch_seen_at' => null, 'switch_stale' => false, 'switch_port_down' => false,
+                'hostname' => $r->label, 'extension' => null,
+                'endpoint_model' => null, 'endpoint_kind' => null,
+                'device_id' => $r->device_id, 'device_name' => $r->device?->name,
+                'device_role' => null,
+                'interface' => null, 'prefix_len' => $r->prefix_len,
+                'is_public' => self::isPublicIp($ip),
+                'reservation' => ['label' => $r->label, 'purpose' => $r->purpose, 'note' => $r->note],
+                'first_seen_at' => null, 'last_seen_at' => null, 'stale' => false,
+            ];
+        }
+
+        // Every address in the block that nothing occupies, listed explicitly. Without
+        // this the map showed only what was taken and left "what can I actually use?"
+        // to be worked out by hand from the gaps.
+        $taken = array_column($rows, 'ip');
+        $usable = self::usableAddresses($net['prefix']);
+        $size = 2 ** (32 - $net['prefix']);
+
+        if ($size <= self::MAX_ENUMERATED) {
+            $base = ip2long($net['base']) & ($net['prefix'] === 0 ? 0 : -1 << (32 - $net['prefix']));
+            $first = $net['prefix'] >= 31 ? $base : $base + 1;          // skip the network address
+            $last = $net['prefix'] >= 31 ? $base + $size - 1 : $base + $size - 2;  // and the broadcast
+
+            for ($l = $first; $l <= $last; $l++) {
+                $ip = long2ip($l);
+                if (in_array($ip, $taken, true)) {
+                    continue;
+                }
+                $rows[] = [
+                    'ip' => $ip, 'sort' => $l, 'state' => 'free',
+                    'mac' => null, 'vendor' => null, 'also_on' => null,
+                    'switch' => null, 'switch_port' => null, 'vlan' => null,
+                    'switch_seen_at' => null, 'switch_stale' => false, 'switch_port_down' => false,
+                    'hostname' => null, 'extension' => null,
+                    'endpoint_model' => null, 'endpoint_kind' => null,
+                    'device_id' => null, 'device_name' => null, 'device_role' => null,
+                    'interface' => null, 'prefix_len' => $net['prefix'], 'is_public' => self::isPublicIp($ip),
+                    'first_seen_at' => null, 'last_seen_at' => null, 'stale' => false,
+                ];
+            }
+        }
+
+        usort($rows, fn ($a, $b) => $a['sort'] <=> $b['sort']);
+
+        $count = fn (string $s) => count(array_filter($rows, fn ($r) => $r['state'] === $s));
+        $reservedCount = count(array_filter($rows, fn ($r) => ($r['reservation'] ?? null) !== null));
+
+        return [
+            'cidr' => $cidr,
+            'rows' => $rows,
+            'summary' => [
+                'usable' => $usable,
+                'assigned' => $count('assigned'),
+                'discovered' => $count('discovered'),
+                'conflict' => $count('conflict'),
+                // NOT "occupied". One MAC answering for a swathe of the range is a
+                // broken identity, and the live data says so plainly: all 151 of
+                // 10.200.77.0/24's unverified addresses answer as D4:A2:CD:4E:99:F4,
+                // on ONE access port that is down with an empty switching table, and
+                // every one of their ARP entries carries the SAME timestamp to the
+                // second. 151 hosts do not answer in the same second — that is one
+                // appliance ARP-cache artefact, not 151 occupied addresses.
+                //
+                // They are still not offered as free: something produced those
+                // entries, and handing an operator an address that turns out to be
+                // live is the worse error. So they stay their own bucket — neither
+                // used nor available — and the figures below let the page say so
+                // instead of quietly spending them out of the free count.
+                'unverified' => $count('unverified'),
+                'reserved' => $reservedCount,
+                'free' => $size <= self::MAX_ENUMERATED
+                    ? $count('free')
+                    : max(0, $usable - count($rows)),
+                // Occupancy anyone can stand behind. This — never usable-minus-free —
+                // is what "how full is this range" means: 10.200.77.0/24 read as 49
+                // free of 254 ("almost full") when 54 addresses are actually accounted
+                // for and the other 151 are one unidentifiable MAC.
+                'confirmed' => $count('assigned') + $count('discovered') + $count('conflict') + $reservedCount,
+                // The ceiling: what would be free if every unidentified address turns
+                // out to be nothing. Reported beside free so neither number stands
+                // alone claiming more certainty than the evidence carries.
+                'free_max' => ($size <= self::MAX_ENUMERATED
+                    ? $count('free')
+                    : max(0, $usable - count($rows))) + $count('unverified'),
+                'enumerated' => $size <= self::MAX_ENUMERATED,
+                // Split out so "in use now" is never confused with "has been used".
+                'stale' => count(array_filter($rows, fn ($r) => $r['stale'])),
+                'live' => count(array_filter($rows, fn ($r) => ! $r['stale'] && $r['state'] !== 'free')),
+            ],
+        ];
+    }
+
+    /**
+     * Which /24s of the corporate supernet are free for a new site.
+     *
+     * Occupancy comes from the wire — anything ARP has seen, plus every device
+     * management address — so a range nobody documented still reads as taken. That is
+     * the point: the documented list has 3 entries and the network has 128.
+     *
+     * @return array{supernet: string, blocks: array, runs: array, summary: array}
+     */
+    public function space(string $supernet = self::SUPERNET): array
+    {
+        $net = self::parseCidr($supernet);
+        if ($net === null || $net['prefix'] !== 16) {
+            return ['supernet' => $supernet, 'blocks' => [], 'runs' => [], 'summary' => []];
+        }
+        [$a, $b] = array_slice(explode('.', $net['base']), 0, 2);
+        $prefix = "{$a}.{$b}.";
+
+        // Three tallies per /24, because "seen" alone was what painted this map wrong.
+        // Counting every address ever ARPed put 10.200.77.0/24 at 205 of 254 — amber,
+        // "busy", plan around it — when 151 of those answer as ONE duplicate MAC on a
+        // dead access port. The block colour comes from what is CONFIRMED, exactly as
+        // the range list and the range detail already do; the other two figures are
+        // reported so a block thick with unidentifiable replies is never read as empty
+        // either.
+        $answered = [];   // octet => every address ever seen
+        $fresh = [];      // octet => answered inside FRESH_HOURS
+        $macIps = [];     // octet => mac => its fresh addresses
+        $cut = now()->subHours(self::FRESH_HOURS);
+
+        ArpEntry::query()->where('ip', 'like', $prefix.'%')->select(['ip', 'mac', 'last_seen_at'])
+            ->orderBy('id')->chunk(5000, function (Collection $rows) use (&$answered, &$fresh, &$macIps, $prefix, $cut) {
+                foreach ($rows as $r) {
+                    $o = self::thirdOctet($r->ip, $prefix);
+                    // An all-zero MAC is a failed resolution, not a host.
+                    if ($o === null || self::isIncomplete($r->mac)) {
+                        continue;
+                    }
+                    $answered[$o][$r->ip] = true;
+                    if ($r->last_seen_at && $r->last_seen_at->greaterThanOrEqualTo($cut)) {
+                        $fresh[$o][$r->ip] = true;
+                        $macIps[$o][$r->mac][$r->ip] = true;
+                    }
+                }
+            });
+
+        // Addresses known from configuration rather than observation. A device never
+        // ARPs its own address, and a hand-recorded allocation may answer nothing at
+        // all, so both are counted directly — and both make their MAC trustworthy.
+        $known = [];
+        foreach (Device::whereNotNull('ip_address')->where('ip_address', 'like', $prefix.'%')->pluck('ip_address') as $ip) {
+            $o = self::thirdOctet($ip, $prefix);
+            if ($o !== null) {
+                $known[$o][$ip] = true;
+                $answered[$o][$ip] = true;
+            }
+        }
+
+        // A hand-recorded address occupies its block as surely as an observed one —
+        // otherwise the planner would offer a /24 that somebody has already written
+        // an allocation into.
+        foreach (IpReservation::where('ip', 'like', $prefix.'%')->pluck('ip') as $ip) {
+            $o = self::thirdOctet($ip, $prefix);
+            if ($o !== null) {
+                $known[$o][$ip] = true;
+                $answered[$o][$ip] = true;
+            }
+        }
+
+        $blocks = [];
+        for ($i = 0; $i <= 255; $i++) {
+            // A MAC answering for more of this /24 than any one host plausibly holds,
+            // with no device we can see behind any of them: the identity is broken, so
+            // those addresses cannot be counted as occupancy. See MAX_ADDRESSES_PER_MAC.
+            $unverified = self::unidentifiable($macIps[$i] ?? [], $known[$i] ?? []);
+            $n = self::confirmedCount($fresh[$i] ?? [], $unverified, $known[$i] ?? []);
+
+            // .0 and .255 are left alone by convention rather than allocated.
+            $reserved = $i === 0 || $i === 255;
+            $blocks[] = [
+                'octet' => $i,
+                'cidr' => "{$prefix}{$i}.0/24",
+                'seen' => $n,
+                // Everything that ever replied, and the part of it nothing can identify.
+                // A block is never offered as free on the strength of ignorance.
+                'answered' => isset($answered[$i]) ? count($answered[$i]) : 0,
+                'unverified' => count($unverified),
+                'pct' => (int) round($n / 254 * 100),
+                'state' => $reserved
+                    ? 'reserved'
+                    : (($n > 0 || $unverified !== []) ? ($n / 254 >= 0.7 ? 'busy' : 'used') : 'free'),
+            ];
+        }
+
+        // Contiguous free runs, longest first — a new site wants room to grow into.
+        $runs = [];
+        $start = null;
+        foreach ($blocks as $blk) {
+            if ($blk['state'] === 'free') {
+                $start ??= $blk['octet'];
+                $last = $blk['octet'];
+            } elseif ($start !== null) {
+                $runs[] = ['from' => $start, 'to' => $last, 'size' => $last - $start + 1];
+                $start = null;
+            }
+        }
+        if ($start !== null) {
+            $runs[] = ['from' => $start, 'to' => $last, 'size' => $last - $start + 1];
+        }
+        usort($runs, fn ($x, $y) => $y['size'] <=> $x['size']);
+
+        $free = count(array_filter($blocks, fn ($b) => $b['state'] === 'free'));
+
+        return [
+            'supernet' => $supernet,
+            'blocks' => $blocks,
+            'runs' => array_slice($runs, 0, 10),
+            'summary' => [
+                'total' => 256,
+                'in_use' => count(array_filter($blocks, fn ($b) => in_array($b['state'], ['used', 'busy'], true))),
+                'free' => $free,
+                'reserved' => count(array_filter($blocks, fn ($b) => $b['state'] === 'reserved')),
+                'largest_run' => $runs[0]['size'] ?? 0,
+                'suggested' => isset($runs[0]) ? "{$prefix}{$runs[0]['from']}.0/24" : null,
+            ],
+        ];
+    }
+
+    /**
+     * Hand-recorded addresses inside a CIDR block.
+     *
+     * @return array<int, IpReservation>
+     */
+    private function reservationsInside(string $cidr): array
+    {
+        $this->reservationCache ??= IpReservation::get(['ip'])->all();
+
+        return array_values(array_filter($this->reservationCache, fn ($r) => self::inside($r->ip, $cidr)));
+    }
+
+    /** @var array<int, IpReservation>|null */
+    private ?array $reservationCache = null;
+
+    /** Does this address fall inside the block? */
+    public static function inside(string $ip, string $cidr): bool
+    {
+        $net = self::parseCidr($cidr);
+        $l = ip2long($ip);
+        if ($net === null || $l === false) {
+            return false;
+        }
+        $base = ip2long($net['base']);
+        if ($base === false) {
+            return false;
+        }
+        $mask = $net['prefix'] === 0 ? 0 : -1 << (32 - $net['prefix']);
+        $start = $base & $mask;
+
+        return $l >= $start && $l <= $start + (2 ** (32 - $net['prefix'])) - 1;
+    }
+
+    /**
+     * Configured interface addresses that fall inside a CIDR block.
+     *
+     * @return array<int, InterfaceAddress>
+     */
+    private function addressesInside(string $cidr): array
+    {
+        $net = self::parseCidr($cidr);
+        if ($net === null) {
+            return [];
+        }
+        $base = ip2long($net['base']);
+        if ($base === false) {
+            return [];
+        }
+        $mask = $net['prefix'] === 0 ? 0 : -1 << (32 - $net['prefix']);
+        $start = $base & $mask;
+        $end = $start + (2 ** (32 - $net['prefix'])) - 1;
+
+        $this->configuredCache ??= InterfaceAddress::get(['ip', 'device_id'])->all();
+
+        return array_values(array_filter($this->configuredCache, function ($a) use ($start, $end) {
+            $l = ip2long($a->ip);
+
+            return $l !== false && $l >= $start && $l <= $end;
+        }));
+    }
+
+    /** @var array<int, InterfaceAddress>|null */
+    private ?array $configuredCache = null;
+
+    /** @param array<int, array> $sites */
+    private function summary(array $sites): array
+    {
+        $all = collect($sites)->flatMap(fn ($s) => $s['ranges']);
+        // Only routed ranges are allocations; site-local blocks are counted apart so
+        // setting them aside is visible rather than a silent omission.
+        $ranges = $all->where('scope', 'routed');
+        $lan = $ranges->where('kind', 'lan');
+
+        return [
+            'sites' => count($sites),
+            'ranges' => $ranges->unique('cidr')->count(),
+            'wan' => $ranges->where('kind', 'wan')->unique('cidr')->count(),
+            'lan' => $lan->unique('cidr')->count(),
+            'site_local' => $all->where('scope', 'site-local')->unique('cidr')->count(),
+            'addresses_seen' => (int) $lan->unique('cidr')->sum('seen'),
+            'unrecorded_lan' => $lan->unique('cidr')->where('recorded', false)->count(),
+            'needs_attention' => $ranges->whereIn('state', ['warning', 'critical'])->unique('cidr')->count(),
+            // Visible rather than silently missing — see $unreadableWan.
+            'unreadable_wan' => $this->unreadableWan,
+            'public_configured' => InterfaceAddress::where('is_public', true)->count(),
+        ];
+    }
+
+    // ---- address helpers -------------------------------------------------------
+
+    /** @return array{base: string, prefix: int}|null */
+    public static function parseCidr(?string $cidr): ?array
+    {
+        if (! $cidr || ! str_contains($cidr, '/')) {
+            return null;
+        }
+        [$base, $prefix] = explode('/', trim($cidr), 2);
+        if (! filter_var($base, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) || ! is_numeric($prefix)) {
+            return null;
+        }
+        $prefix = (int) $prefix;
+
+        return ($prefix < 0 || $prefix > 32) ? null : ['base' => $base, 'prefix' => $prefix];
+    }
+
+    /**
+     * True when an address falls inside a network — the real test, done on the
+     * 32-bit value rather than on text.
+     *
+     * @param  array{base: string, prefix: int}  $net
+     */
+    public static function inNetwork(?string $ip, array $net): bool
+    {
+        if (! $ip || ! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return false;
+        }
+        if ($net['prefix'] === 0) {
+            return true;
+        }
+        $mask = -1 << (32 - $net['prefix']);
+
+        return (ip2long($ip) & $mask) === (ip2long($net['base']) & $mask);
+    }
+
+    /**
+     * A cheap SQL prefix for narrowing a table before the exact test above.
+     *
+     * It only ever matches a SUPERSET of the network — it is a pre-filter, never
+     * the answer. Every caller must still run inNetwork() over what comes back:
+     * matching on three octets alone made a /30 show all 256 addresses of its /24,
+     * which at Massey is a block of ISP point-to-point links spread over a dozen
+     * different sites.
+     *
+     * @param  array{base: string, prefix: int}  $net
+     */
+    public static function sqlPrefix(array $net): string
+    {
+        $octets = explode('.', $net['base']);
+        $keep = match (true) {
+            $net['prefix'] >= 24 => 3,
+            $net['prefix'] >= 16 => 2,
+            $net['prefix'] >= 8 => 1,
+            default => 0,
+        };
+
+        return $keep === 0 ? '' : implode('.', array_slice($octets, 0, $keep)).'.';
+    }
+
+    /** Hosts in a prefix. A /31 and /32 have no network+broadcast pair to deduct. */
+    public static function usableAddresses(int $prefix): int
+    {
+        if ($prefix >= 31) {
+            return $prefix === 32 ? 1 : 2;
+        }
+
+        return (2 ** (32 - $prefix)) - 2;
+    }
+
+    /**
+     * A function that puts an address in the range it belongs to.
+     *
+     * Recorded prefixes win over the assumed /24, longest match first, so a correction
+     * on 10.11.0.0/23 groups both halves as one LAN while a more specific /28 recorded
+     * inside it still takes precedence for the addresses it covers. Everything with no
+     * correction keeps the /24 the whole page was built on.
+     *
+     * Returned as a closure with the prefix list captured once: a fleet sweep buckets
+     * ~13k addresses and must not re-query per address, and holding the list on the
+     * service would let it outlive a correction somebody just made.
+     *
+     * @return callable(?string): ?string
+     */
+    public static function bucketer(): callable
+    {
+        $prefixes = IpPrefix::orderByDesc('cidr')->pluck('cidr')
+            ->map(fn ($c) => ['cidr' => $c, 'net' => self::parseCidr($c)])
+            ->filter(fn ($p) => $p['net'] !== null)
+            // Most specific first: a /28 recorded inside a /23 describes its addresses
+            // better than the /23 does.
+            ->sortByDesc(fn ($p) => $p['net']['prefix'])
+            ->values()->all();
+
+        return function (?string $ip) use ($prefixes): ?string {
+            if (! $ip || ! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                return null;
+            }
+            foreach ($prefixes as $p) {
+                if (self::inNetwork($ip, $p['net'])) {
+                    return $p['cidr'];
+                }
+            }
+
+            return self::slashTwentyFour($ip);
+        };
+    }
+
+    /**
+     * A CIDR written from its network address, so one prefix has one spelling.
+     *
+     * 10.11.0.5/23 and 10.11.1.9/23 are the same block; stored as typed they would be
+     * two rows describing it, and the unique index would not catch it.
+     */
+    public static function canonicalCidr(?string $cidr): ?string
+    {
+        $net = self::parseCidr($cidr);
+        if ($net === null) {
+            return null;
+        }
+        $mask = $net['prefix'] === 0 ? 0 : (~0 << (32 - $net['prefix'])) & 0xFFFFFFFF;
+        $base = long2ip(ip2long($net['base']) & $mask);
+
+        return "{$base}/{$net['prefix']}";
+    }
+
+    public static function slashTwentyFour(?string $ip): ?string
+    {
+        if (! $ip || ! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return null;
+        }
+        $p = explode('.', $ip);
+
+        return "{$p[0]}.{$p[1]}.{$p[2]}.0/24";
+    }
+
+    /**
+     * What kind of endpoint this is, from the strongest signal available.
+     *
+     * LLDP first — a device that announces itself as a phone is a phone. The OUI is a
+     * fallback: it identifies the manufacturer, and for these vendors that is a
+     * reliable proxy for the class of kit. Anything unrecognised stays null rather
+     * than being guessed at.
+     */
+    public static function endpointKind(?string $vendor, ?string $neighborType, ?string $model): ?string
+    {
+        $t = strtolower((string) $neighborType);
+        if (str_contains($t, 'phone')) {
+            return 'phone';
+        }
+        if (str_contains($t, 'wlan') || str_contains($t, 'ap')) {
+            return 'access-point';
+        }
+
+        $v = strtolower((string) $vendor);
+        if ($v === '') {
+            return null;
+        }
+        if (str_contains($v, 'mitel') || str_contains($v, 'polycom') || str_contains($v, 'yealink')) {
+            return 'phone';
+        }
+        if (str_contains($v, 'ubiquiti') || str_contains($v, 'aruba') || str_contains($v, 'ruckus') || str_contains($v, 'meraki')) {
+            return 'access-point';
+        }
+        if (str_contains($v, 'axis') || str_contains($v, 'verkada') || str_contains($v, 'hanwha')) {
+            return 'camera';
+        }
+        if (str_contains($v, 'askey') || str_contains($v, 'arris') || str_contains($v, 'technicolor')) {
+            return 'modem';
+        }
+
+        return null;
+    }
+
+    /** An ARP entry with an all-zero or broadcast MAC is a failed resolution. */
+    public static function isIncomplete(?string $mac): bool
+    {
+        return $mac === null || in_array(strtoupper(trim($mac)), self::NULL_MACS, true);
+    }
+
+    /** Routable on the internet — used to label a free address honestly. */
+    public static function isPublicIp(string $ip): bool
+    {
+        return (bool) filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE);
+    }
+
+    /**
+     * Is this range locally significant at each site rather than allocated once?
+     *
+     * Declared blocks first, then the empirical guard for anything not on that list.
+     */
+    /**
+     * @param  array<int, int>  $addressesPerSite  site id => how many addresses it holds
+     * @param  array<int, int>  $deviceOwnerSites  sites with a DEVICE addressed inside
+     */
+    public static function isSiteLocalRange(string $cidr, array $addressesPerSite, array $deviceOwnerSites = []): bool
+    {
+        foreach (self::SITE_LOCAL_BLOCKS as $block) {
+            if (str_starts_with($cidr, $block)) {
+                return true;
+            }
+        }
+
+        if (count($addressesPerSite) <= self::SITE_LOCAL_MIN_SITES) {
+            return false;
+        }
+
+        // A site with equipment addressed inside the range OWNS it. 10.11.0.0/23 is
+        // HQ's corporate LAN on irb.4 with 271 hosts, and eleven other gateways held a
+        // stray ARP entry apiece for an address across the tunnel. Counting sites that
+        // merely have AN entry called it site-local, which exempted it from the
+        // ownership collapse and scattered HQ's LAN across twelve sites.
+        if (count($deviceOwnerSites) === 1) {
+            return false;
+        }
+
+        // No declared owner: the shape of the population decides. Site-local means the
+        // same numbers reused independently, so every site holds its own handful —
+        // 192.168.255.0/24 is one or two addresses at each of 127 sites. One site
+        // holding nearly all of them is one LAN plus incidental cross-site ARP, which
+        // is a different thing and must not be treated as unallocatable.
+        $total = array_sum($addressesPerSite);
+        if ($total > 0 && (max($addressesPerSite) / $total) >= self::SITE_LOCAL_MAX_SHARE) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Is this the gateway's WAN uplink rather than a LAN-facing port?
+     *
+     * Named conservatively: only the labels these appliances actually use for an
+     * upstream port. Anything unrecognised returns false, so an entry is never
+     * dismissed as "upstream" on a guess — the flag exists to explain a surprising
+     * row, not to hide one.
+     */
+    public static function isWanInterface(?string $name): bool
+    {
+        $n = strtolower(trim((string) $name));
+        if ($n === '') {
+            return false;
+        }
+
+        return (bool) preg_match('/^(wan\d*|internet\d*|ppp\d*|dsl\d*|cable\d*|outside)\b/', $n);
+    }
+
+    /**
+     * Interface addresses that are real allocation, minus the plumbing.
+     *
+     * An address on a control-plane interface is not held by anybody: em2.32768 carries
+     * one on every Juniper chassis in the fleet, identically, whether or not the site
+     * uses that space. Counting them made 192.168.1.0/24 look occupied at HQ and put a
+     * switch's internal bridge on screen as though something were plugged into it.
+     *
+     * @return Collection<int, string>
+     */
+    private static function allocatableInterfaceAddresses()
+    {
+        return InterfaceAddress::with('interface:id,if_name')->get(['ip', 'device_interface_id'])
+            ->reject(fn ($a) => NetworkInterface::isControlPlane(optional($a->interface)->if_name))
+            ->pluck('ip');
+    }
+
+    /** RFC1918 only. Link-local (169.254) is deliberately NOT a LAN range. */
+    public static function isPrivate(?string $ip): bool
+    {
+        if (! $ip || ! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return false;
+        }
+
+        return ! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE)
+            && ! str_starts_with($ip, '169.254.');
+    }
+
+    private static function thirdOctet(string $ip, string $prefix): ?int
+    {
+        if (! str_starts_with($ip, $prefix)) {
+            return null;
+        }
+        $p = explode('.', $ip);
+
+        return isset($p[2]) && is_numeric($p[2]) ? (int) $p[2] : null;
+    }
+
+    public static function ipSort(string $ip): int
+    {
+        $l = ip2long($ip);
+
+        return $l === false ? 0 : $l;
+    }
+}
