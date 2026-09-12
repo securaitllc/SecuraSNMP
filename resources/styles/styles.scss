@@ -1,0 +1,460 @@
+// Write your overrides
+
+// ── Foundation ───────────────────────────────────────────────────────────
+// The Terminal system: one near-black ground, one hairline colour, no cards,
+// no shadows, no radius. Type is IBM Plex — Sans for words, Mono for anything
+// numeric. Colour means severity and nothing else; the single blue accent is
+// for actions and the active nav item. Everything below inherits from here.
+:root {
+  --nodus-radius: 0px;
+  --nodus-radius-sm: 0px;
+  --nodus-rule: #1E242E;
+  --nodus-ink-dim: #6B7482;
+  --nodus-elev: none;
+  --nodus-elev-raised: none;
+}
+
+body,
+.v-application {
+  font-family: 'IBM Plex Sans', 'Helvetica Neue', Arial, system-ui, sans-serif;
+  font-size: 12px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+// Every figure that sits in a column — durations, tickets, addresses, counts —
+// must be tabular or the columns visibly wobble row to row.
+.mono,
+.ce-num,
+.ce-mono input {
+  font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+// Section labels: 10px caps, tracked. This is the only heading style a panel needs.
+.cap {
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--nodus-ink-dim);
+  font-weight: 600;
+}
+
+h1, h2, h3,
+.text-h3, .text-h4, .text-h5, .text-h6 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.text-h4 { font-size: 16px !important; }
+
+// A card is a region with a rule around it. Nothing lifts.
+.v-card {
+  border: 1px solid var(--nodus-rule);
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: rgb(var(--v-theme-background));
+}
+.v-card .v-card-title { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: rgb(var(--v-theme-on-surface)); font-weight: 600; }
+.v-card .v-card-item { padding-block: 10px; border-block-end: 1px solid var(--nodus-rule); }
+
+// Flat controls. Buttons are outlined uppercase labels; chips are square.
+.v-btn { border-radius: 0 !important; letter-spacing: .08em; text-transform: uppercase; font-size: 10px; font-weight: 600; }
+.v-btn--variant-elevated, .v-btn--variant-flat { box-shadow: none !important; }
+.v-chip { border-radius: 0 !important; }
+.v-field { border-radius: 0 !important; }
+.v-alert { border-radius: 0 !important; }
+.v-list, .v-menu > .v-overlay__content > .v-card, .v-menu > .v-overlay__content > .v-list { border-radius: 0 !important; border: 1px solid var(--nodus-rule); }
+
+// Tables: 9px row rhythm, hairline rows, caps headers, mono numbers.
+.v-table { background: transparent !important; }
+.v-table > .v-table__wrapper > table > thead > tr > th {
+  font-size: 10px !important; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--nodus-ink-dim) !important; font-weight: 600 !important;
+  border-block-end: 1px solid var(--nodus-rule) !important;
+  block-size: 32px !important;
+}
+.v-table > .v-table__wrapper > table > tbody > tr > td {
+  border-block-end: 1px solid #161B23 !important;
+  block-size: 36px !important;
+  font-size: 12px;
+}
+.v-table > .v-table__wrapper > table > tbody > tr:hover > td { background: #0E1219 !important; }
+
+// Top bar: the active item is an underline in the accent, nothing else is coloured.
+.layout-horizontal-nav { box-shadow: none !important; }
+.layout-horizontal-nav .nav-link a,
+.layout-horizontal-nav .nav-group > .nav-group-label {
+  font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none;
+  color: rgba(var(--v-theme-on-surface), .6) !important;
+  border-radius: 0 !important; background: transparent !important; box-shadow: none !important;
+  padding-block: 12px;
+  border-block-end: 2px solid transparent;
+}
+.layout-horizontal-nav .nav-link a.router-link-active,
+.layout-horizontal-nav .nav-link a:hover {
+  color: rgb(var(--v-theme-on-surface)) !important;
+  background: transparent !important;
+}
+.layout-horizontal-nav .nav-link a.router-link-active { border-block-end-color: rgb(var(--v-theme-primary)); }
+// The template decorates the active item with a rounded pseudo-element; the
+// Terminal underline is the border above, so that decoration goes.
+.layout-horizontal-nav .nav-link a::before,
+.layout-horizontal-nav .nav-link a::after,
+.layout-horizontal-nav .nav-link a .nav-item-title::after { display: none !important; }
+.layout-horizontal-nav .nav-link a > * { border-radius: 0 !important; }
+.layout-horizontal-nav .nav-link .nav-item-icon,
+.layout-horizontal-nav .nav-group .nav-item-icon { display: none; }
+.layout-navbar { border-block-end: 1px solid var(--nodus-rule); background: rgb(var(--v-theme-background)) !important; box-shadow: none !important; backdrop-filter: none !important; }
+// One 44px bar: identity · nav · live cluster. The active item's underline
+// sits ON the bar's bottom rule.
+.layout-navbar.terminal-bar { block-size: 44px !important; min-block-size: 44px !important; }
+.terminal-bar__row { display: flex !important; align-items: center; gap: 16px; block-size: 44px !important; padding-block: 0 !important; }
+.terminal-bar__nav { flex: 1 1 auto; min-inline-size: 0; border: 0 !important; background: transparent !important; position: static !important; }
+.terminal-bar__nav .horizontal-nav-content-container { block-size: 44px !important; padding: 0 !important; max-inline-size: none !important; overflow: hidden; }
+// The nav never wraps: at a narrow width it clips, it does not push the live
+// cluster to a second line.
+.terminal-bar__nav ul, .terminal-bar__nav .nav-items, .terminal-bar__nav .horizontal-nav { display: flex; flex-wrap: nowrap !important; white-space: nowrap; }
+.layout-horizontal-nav .nav-link a, .layout-horizontal-nav .nav-group > .nav-group-label { padding-inline: 11px !important; }
+.terminal-bar__row > .v-spacer { display: none; }
+.layout-horizontal-nav .nav-link a,
+.layout-horizontal-nav .nav-group > .nav-group-label { padding-block: 0 !important; block-size: 44px !important; line-height: 44px; margin-block-end: 0; }
+.layout-horizontal-nav .nav-group .nav-group-label .v-icon { font-size: 14px; }
+.app-logo .app-logo-title {
+  font-size: 13px !important; font-weight: 600 !important; letter-spacing: .06em !important;
+  text-transform: uppercase !important; line-height: 1 !important;
+}
+
+// Buttons are outlined labels in the Terminal system. Vuetify's flat/tonal
+// variants paint slabs; strip the fill and keep the colour on the border + text
+// so a primary action, a warning action and a destructive one still differ.
+.v-btn--variant-flat, .v-btn--variant-elevated, .v-btn--variant-tonal {
+  background: transparent !important;
+  border: 1px solid currentColor;
+}
+.v-btn--variant-tonal .v-btn__underlay { opacity: 0 !important; }
+.v-btn--variant-flat.bg-primary, .v-btn--variant-elevated.bg-primary { color: rgb(var(--v-theme-primary)) !important; }
+.v-btn--variant-flat.bg-warning, .v-btn--variant-elevated.bg-warning { color: rgb(var(--v-theme-warning)) !important; }
+.v-btn--variant-flat.bg-error, .v-btn--variant-elevated.bg-error { color: rgb(var(--v-theme-error)) !important; }
+.v-btn--variant-flat.bg-success, .v-btn--variant-elevated.bg-success { color: rgb(var(--v-theme-success)) !important; }
+.v-btn--variant-flat.bg-secondary, .v-btn--variant-elevated.bg-secondary { color: rgba(var(--v-theme-on-surface), .7) !important; }
+.v-btn--variant-flat:hover, .v-btn--variant-elevated:hover, .v-btn--variant-tonal:hover { background: rgba(var(--v-theme-on-surface), .05) !important; }
+.v-btn--icon { border: 0 !important; }
+.v-btn.v-btn--size-default { block-size: 30px; padding-inline: 12px; }
+.v-btn.v-btn--size-small { block-size: 26px; padding-inline: 10px; font-size: 10px; }
+
+.layout-footer { border-block-start: 1px solid var(--nodus-rule); font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: .04em; color: var(--nodus-ink-dim); }
+.layout-page-content { padding: 14px 20px 20px !important; }
+
+// ── App-wide filter controls ─────────────────────────────────────────────
+// One consistent filter style for every filter in the app (alarm history,
+// findings, …): a row of colour-coded chips. Chips size to their own label so
+// text never overlaps; tonal when off, filled with their colour when on.
+.app-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+
+  .v-chip {
+    cursor: pointer;
+    font-weight: 600;
+    letter-spacing: normal;
+  }
+}
+
+// One consistent SEGMENTED-toggle style for every range/time/metric filter in
+// the app (interface graph, reports, …): a compact dark segmented control, the
+// active segment tinted with the primary colour. Apply `class="seg-toggle"` to a
+// VBtnToggle (density=comfortable, variant=outlined, mandatory, divided). Add
+// `seg-toggle--wide` when segments carry an icon + longer label.
+.seg-toggle {
+  block-size: 34px;
+  flex: none;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+
+  .v-btn {
+    block-size: 34px;
+    min-inline-size: 72px;
+    padding-inline: 14px;
+    white-space: nowrap;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    border: none;
+    border-radius: 0;
+    color: rgb(var(--v-theme-on-surface));
+    opacity: 0.7;
+  }
+  .v-btn .v-icon { font-size: 15px; margin-inline-end: 4px; }
+  .v-btn--active {
+    background: rgba(var(--v-theme-primary), 0.16);
+    color: rgb(var(--v-theme-primary));
+    opacity: 1;
+  }
+  .v-btn:not(:last-child) {
+    border-inline-end: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  }
+}
+.seg-toggle--wide .v-btn { min-inline-size: 92px; }
+.seg-toggle--narrow .v-btn { min-inline-size: 48px; }
+
+// ─────────────────────────────────────────────────────────────────────────
+// UNIFIED TOGGLE — ONE style for every view / range / filter toggle in the app:
+// a pill track with a solid primary-filled active segment (reads on/off from
+// across a NOC). Three entry classes share this single definition so existing
+// markup stays untouched:
+//   .switch-toggle — plain <button>s, active gets `.on`   (view switches)
+//   .list-pills    — list-page filters, <button class="list-pill">, active `.list-pill--on`
+//   .range-pills   — a VBtnToggle (variant=outlined, mandatory), active `.v-btn--active`
+// Real radios / switches in settings & user dialogs are form controls, NOT
+// toggles — they are left to Vuetify.
+.switch-toggle,
+.list-pills,
+.range-pills {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  max-inline-size: 100%;
+  overflow-x: auto;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  gap: 4px;
+  block-size: auto;
+  flex: none;
+}
+
+.switch-toggle button,
+.list-pills .list-pill,
+.range-pills .v-btn {
+  border: 1px solid var(--nodus-rule);
+  background: transparent;
+  color: var(--nodus-ink-dim);
+  font: inherit;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 0 !important;
+  padding: 3px 9px;
+  min-inline-size: 0;
+  block-size: auto;
+  opacity: 1;
+  box-shadow: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+.switch-toggle button .v-icon,
+.list-pills .list-pill .v-icon,
+.range-pills .v-btn .v-icon { font-size: 14px; }
+
+.switch-toggle button.on,
+.list-pills .list-pill--on,
+.range-pills .v-btn--active {
+  background: #1A2130;
+  border-color: #1A2130;
+  color: rgb(var(--v-theme-on-surface));
+  box-shadow: none;
+}
+
+// Status / severity dot inside a filter toggle segment.
+.list-pill__d { inline-size: 7px; block-size: 7px; border-radius: 50%; flex: none; }
+
+// A surface card sitting directly under a ListTabs strip — square off the top-start
+// corner so the active tab reads as continuous with the card.
+.list-surface { border-start-start-radius: 0 !important; border-block-start: 0; }
+
+/* --- shared sectioned editor dialog (circuits / devices / sites) --- */
+.ce { display: flex; flex-direction: column; max-height: 88vh; }
+.ce-head { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid rgba(var(--v-theme-on-surface), .1); }
+.ce-ic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; background: rgba(var(--v-theme-primary), .14); color: rgb(var(--v-theme-primary)); }
+.ce-title h2 { font-size: 18px; font-weight: 800; letter-spacing: -.01em; margin: 0; line-height: 1.2; }
+.ce-title p { margin: 1px 0 0; font-size: 12.5px; color: rgba(var(--v-theme-on-surface), .6); }
+.ce-x { margin-left: auto; }
+.ce-body { display: grid; grid-template-columns: 178px 1fr; min-height: 0; flex: 1; }
+.ce-rail { border-right: 1px solid rgba(var(--v-theme-on-surface), .1); padding: 12px 8px; background: rgba(var(--v-theme-on-surface), .02); }
+.ce-rail-btn { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; border: 0; background: none; font: inherit; font-size: 13px; font-weight: 600; color: rgba(var(--v-theme-on-surface), .6); padding: 9px 10px; border-radius: 8px; cursor: pointer; }
+.ce-rail-btn:hover { color: rgb(var(--v-theme-on-surface)); }
+.ce-rail-btn.on { background: rgb(var(--v-theme-surface)); color: rgb(var(--v-theme-on-surface)); box-shadow: 0 1px 2px rgba(0,0,0,.1); }
+.ce-rail-n { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font-size: 11px; font-family: 'IBM Plex Mono', monospace; background: rgba(var(--v-theme-on-surface), .1); color: rgba(var(--v-theme-on-surface), .6); }
+.ce-rail-btn.on .ce-rail-n { background: rgb(var(--v-theme-primary)); color: #fff; }
+.ce-content { padding: 18px 22px 8px; overflow-y: auto; }
+.ce-sect { margin-bottom: 24px; scroll-margin-top: 8px; }
+.ce-sh { display: flex; align-items: baseline; gap: 9px; }
+.ce-sh h3 { font-size: 14.5px; font-weight: 750; margin: 0; letter-spacing: -.01em; }
+.ce-num { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: rgba(var(--v-theme-on-surface), .4); }
+.ce-sub { font-size: 12px; color: rgba(var(--v-theme-on-surface), .55); margin: 2px 0 12px; }
+.ce-flabel { font-size: 11.5px; font-weight: 500; color: rgba(var(--v-theme-on-surface), .7); margin-bottom: 6px; }
+/* Choice fields in these dialogs use plain Vuetify VSelect dropdowns — the app's
+   one form-control convention. No custom segmented-toggle style here. */
+.ce-cond { border-left: 2px solid rgba(var(--v-theme-primary), .5); padding: 4px 0 4px 14px; margin-top: 2px; }
+.ce-cond-lbl { font-size: 11.5px; color: rgb(var(--v-theme-primary)); font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.ce-mono input { font-family: 'IBM Plex Mono', monospace; }
+.ce-foot { display: flex; align-items: center; gap: 10px; padding: 13px 20px; border-top: 1px solid rgba(var(--v-theme-on-surface), .1); background: rgba(var(--v-theme-on-surface), .02); }
+.ce-status { font-size: 12px; color: rgba(var(--v-theme-on-surface), .6); margin-right: auto; }
+@media (max-width: 640px) { .ce-body { grid-template-columns: 1fr; } .ce-rail { display: none; } }
+
+/* ---------------------------------------------------------------------------
+   Right-side editor drawer.
+   EVERY create/edit form in Nodus slides in from the right — never a centered
+   modal. Apply with:
+     <VDialog transition="slide-x-reverse-transition" content-class="nodus-drawer" scrollable>
+   The rules below make a plain VCard fill the drawer on its own: the card
+   becomes a full-height column, its VCardText scrolls, and VCardActions pins to
+   the bottom — so a form written for a modal needs no other change.
+   Use `nodus-drawer nodus-drawer--sm` for short forms (one or two fields).
+--------------------------------------------------------------------------- */
+.v-overlay__content.nodus-drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  height: 100%;
+  max-height: 100%;
+  width: 640px;
+  max-width: 100%;
+  margin: 0;
+  border-radius: 0;
+}
+.v-overlay__content.nodus-drawer--sm { width: 460px; }
+/* Wide variant for review surfaces — a list you compare across, not a form. */
+.v-overlay__content.nodus-drawer--lg { width: 860px; }
+
+.v-overlay__content.nodus-drawer > .v-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: 100%;
+  border-radius: 0;
+}
+/* The scrolling middle: whichever of these the form uses becomes the scroll area. */
+.v-overlay__content.nodus-drawer > .v-card > .v-card-text { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+/* Header and footer stay put while the middle scrolls. */
+.v-overlay__content.nodus-drawer > .v-card > .v-card-item,
+.v-overlay__content.nodus-drawer > .v-card > .v-card-title,
+.v-overlay__content.nodus-drawer > .v-card > .v-card-actions { flex-shrink: 0; }
+
+/* Editors built on the .ce-* skeleton (site, device, circuit): the shared rules
+   lay the section rail out as a 178px LEFT column, too wide for a 640px drawer.
+   Inside a drawer the body is a single column and the rail becomes a horizontal
+   chip bar above the scrolling content. */
+.nodus-drawer .ce-form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.nodus-drawer .ce-body { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.nodus-drawer .ce-rail {
+  display: flex;
+  gap: 7px;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), .1);
+  background: rgba(var(--v-theme-on-surface), .02);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+.nodus-drawer .ce-rail-btn {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  border: 1px solid rgba(var(--v-theme-on-surface), .16);
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgba(var(--v-theme-on-surface), .6);
+  padding: 7px 13px;
+  border-radius: 16px;
+  cursor: pointer;
+}
+.nodus-drawer .ce-rail-btn:hover { color: rgb(var(--v-theme-on-surface)); }
+.nodus-drawer .ce-rail-btn.on { background: rgba(var(--v-theme-primary), .14); color: rgb(var(--v-theme-primary)); border-color: transparent; }
+.nodus-drawer .ce-rail-n { display: none; }
+.nodus-drawer .ce-content { padding: 18px 22px 8px; overflow-y: auto; flex: 1; }
+/* .ce sets max-height:88vh for the old modal — a drawer is full height. */
+.nodus-drawer > .v-card.ce { max-height: 100%; height: 100%; }
+@media (max-width: 640px) { .nodus-drawer .ce-rail { display: flex; padding: 10px 14px; } }
+
+@media (max-width: 680px) {
+  .v-overlay__content.nodus-drawer,
+  .v-overlay__content.nodus-drawer--sm { width: 100%; }
+}
+
+// ── Stacked tables on small screens ──────────────────────────────────────
+// A NOC table is built for a 1440px wall. On a phone /circuits is 1086px of
+// columns inside a ~380px viewport, which is 703px of sideways scrolling to read
+// one row — so it does not get read. Below the breakpoint each row becomes a
+// card: the header row is hidden and every cell shows its own column title,
+// stamped on by stackedCellProps() via Vuetify's cell-props.
+//
+// Opt in with class="stack-sm" on the VDataTable. Tables that are genuinely
+// narrow are left alone.
+@media (max-width: 700px) {
+  .v-data-table.stack-sm {
+    .v-table__wrapper > table > thead { display: none; }
+
+    .v-table__wrapper > table,
+    .v-table__wrapper > table > tbody,
+    .v-table__wrapper > table > tbody > tr { display: block; width: 100%; }
+
+    .v-table__wrapper > table > tbody > tr {
+      border: 1px solid var(--nodus-rule);
+      border-block-end: 0;
+      padding: 4px 0;
+
+      &:last-child { border-block-end: 1px solid var(--nodus-rule); }
+      // An expanded detail row is a panel, not a card — let it fill.
+      &.v-data-table__tr--expanded + tr > td { display: block; }
+    }
+
+    // The desktop table is laid out for a wall: fixed column widths, nowrap and
+    // ellipsis so eight columns fit a 1440px row. Stacked, that machinery only
+    // truncates — "Corporate HQ — Orlando" became "Corporate ...". Undo it: a card
+    // has the whole width, so values wrap instead of being cut.
+    .v-table__wrapper > table { table-layout: auto !important; }
+
+    .v-table__wrapper > table > tbody > tr > td,
+    .v-table__wrapper > table > tbody > tr > td * {
+      white-space: normal !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+      max-inline-size: none !important;
+    }
+
+    .v-table__wrapper > table > tbody > tr > td {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      inline-size: auto !important;
+      min-block-size: 0 !important;
+      height: auto !important;
+      padding: 7px 12px !important;
+      border: 0 !important;
+
+      // The column title, so a value still says what it is once the grid is gone.
+      &::before {
+        content: attr(data-label);
+        flex: 0 0 104px;
+        font-size: 10px;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+        color: var(--nodus-ink-dim);
+        font-weight: 600;
+      }
+
+      // Everything after the label shares the remaining width.
+      > * { min-inline-size: 0; }
+
+      // A cell with no label (the actions column) gives its whole width to the
+      // controls instead of holding an empty gutter.
+      &[data-label=""]::before { content: none; }
+      &[data-label=""] { justify-content: flex-end; padding-block: 10px !important; }
+    }
+
+    // Full width for a detail panel opened under a card.
+    .v-table__wrapper > table > tbody > tr > td[colspan] { display: block; }
+    .v-table__wrapper > table > tbody > tr > td[colspan]::before { content: none; }
+  }
+}
