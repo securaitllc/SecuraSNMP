@@ -1,0 +1,122 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\OsintIntegration;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+
+class OsintIntegrationController extends Controller
+{
+    /** Providers the tool knows about — the panel renders one row per entry. */
+    public const PROVIDERS = [
+        'ipdata' => ['label' => 'ipdata.co', 'purpose' => 'IP geolocation, ASN, proxy/VPN/threat flags', 'needs_key' => true],
+        'virustotal' => ['label' => 'VirusTotal', 'purpose' => 'passive-DNS subdomains + domain / IP / URL reputation', 'needs_key' => true],
+        'phone' => ['label' => 'Reverse phone', 'purpose' => 'line type, carrier, fraud score', 'needs_key' => true],
+        'urlscan' => ['label' => 'urlscan.io', 'purpose' => 'private URL scans', 'needs_key' => false],
+        'osint_enum' => ['label' => 'Enum sidecar', 'purpose' => 'shared token for the subdomain-enumeration container (match the stack OSINT_ENUM_TOKEN)', 'needs_key' => true],
+    ];
+
+    public function index(): JsonResponse
+    {
+        $rows = OsintIntegration::all()->keyBy('provider');
+        $out = [];
+        foreach (self::PROVIDERS as $key => $meta) {
+            $row = $rows->get($key);
+            $out[] = array_merge(['provider' => $key], $meta, [
+                'configured' => (bool) ($row?->hasKey()),
+                'masked' => $row?->maskedKey(),
+                'enabled' => (bool) ($row?->enabled ?? true),
+                'meta' => $row?->meta,
+            ]);
+        }
+
+        return response()->json(['data' => $out]);
+    }
+
+    public function update(Request $request, string $provider): JsonResponse
+    {
+        abort_unless(array_key_exists($provider, self::PROVIDERS), 404);
+        $data = $request->validate([
+            'api_key' => ['nullable', 'string', 'max:512'],
+            'enabled' => ['boolean'],
+            'meta' => ['nullable', 'array'],
+        ]);
+
+        $row = OsintIntegration::firstOrNew(['provider' => $provider]);
+        // Empty string clears the key; absent leaves it as-is. Trim — a pasted key almost
+        // always carries a trailing space/newline that the provider then rejects.
+        if ($request->exists('api_key')) {
+            $key = trim((string) $data['api_key']);
+            $row->api_key = $key !== '' ? $key : null;
+        }
+        $row->enabled = $data['enabled'] ?? $row->enabled ?? true;
+        $row->meta = $data['meta'] ?? $row->meta;
+        $row->updated_by = $request->user()->id;
+        $row->save();
+
+        return response()->json(['provider' => $provider, 'configured' => $row->hasKey(), 'masked' => $row->maskedKey()]);
+    }
+
+    /** Live-validate a key against the provider (uses the posted key, else the stored one). */
+    public function test(Request $request, string $provider): JsonResponse
+    {
+        abort_unless(array_key_exists($provider, self::PROVIDERS), 404);
+        $posted = $request->input('api_key');
+        $key = $posted ? trim((string) $posted) : OsintIntegration::keyFor($provider);
+        if (! $key) {
+            return response()->json(['ok' => false, 'message' => 'No key to test.']);
+        }
+
+        try {
+            [$ok, $message] = match ($provider) {
+                'ipdata' => $this->probe(Http::timeout(8)->get('https://api.ipdata.co/8.8.8.8', ['api-key' => $key]), 'ipdata'),
+                'virustotal' => $this->probe(Http::timeout(8)->withHeaders(['x-apikey' => $key])->get('https://www.virustotal.com/api/v3/domains/google.com'), 'VirusTotal'),
+                'urlscan' => $this->probe(Http::timeout(8)->withHeaders(['API-Key' => $key])->get('https://urlscan.io/api/v1/search/', ['q' => 'domain:urlscan.io', 'size' => 1]), 'urlscan'),
+                'phone' => $this->probe(Http::timeout(10)->get("https://ipqualityscore.com/api/json/phone/{$key}/18005551212"), 'phone provider'),
+                'osint_enum' => $this->probeEnum($key),
+                default => [false, 'Unknown provider'],
+            };
+        } catch (\Throwable $e) {
+            return response()->json(['ok' => false, 'message' => 'Request failed — check the key and network.']);
+        }
+
+        return response()->json(['ok' => $ok, 'message' => $message]);
+    }
+
+    /** Validate the enum-sidecar token fast: the sidecar checks the token BEFORE the
+     *  domain, so a deliberately-invalid domain returns 401 (bad token) or 422 (good
+     *  token) instantly — no 45s enumeration just to test the key. */
+    private function probeEnum(string $key): array
+    {
+        $url = rtrim((string) config('services.osint_enum.url'), '/');
+        if ($url === '') {
+            return [false, 'Enum sidecar: no URL configured.'];
+        }
+        $r = Http::timeout(8)->withHeaders(['x-enum-token' => $key])->post($url.'/enum', ['domain' => '!']);
+
+        return match (true) {
+            $r->status() === 401 => [false, 'Enum sidecar: token rejected.'],
+            $r->status() === 422 => [true, 'Enum sidecar: reachable, token valid.'],
+            default => [false, "Enum sidecar: unexpected {$r->status()}."],
+        };
+    }
+
+    private function probe($resp, string $name): array
+    {
+        // Surface the provider's own message so a bad key / wrong product / quota is obvious.
+        $providerMsg = rtrim(is_array($resp->json()) ? (string) ($resp->json('message') ?? '') : '', '.');
+        // 401/403 = rejected everywhere; urlscan.io answers a bad key with 400 "Invalid API key format".
+        if (in_array($resp->status(), [400, 401, 403], true)) {
+            return [false, "{$name}: ".($providerMsg ?: 'key rejected').'.'];
+        }
+        // IPQS returns 200 with success:false on a bad key.
+        if ($name === 'phone' && ($resp->json('success') === false) && str_contains((string) $resp->json('message'), 'key')) {
+            return [false, 'phone provider: key rejected.'];
+        }
+
+        return $resp->ok() ? [true, "{$name}: key valid."] : [false, "{$name}: unexpected {$resp->status()} {$providerMsg}."];
+    }
+}
