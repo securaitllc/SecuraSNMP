@@ -1,0 +1,320 @@
+<?php
+
+namespace Tests\Unit;
+
+use App\Jobs\ReassessDeviceVulnerabilities;
+use App\Models\Device;
+use App\Models\DeviceMetricHistory;
+use App\Models\Site;
+use App\Services\SnmpIdentityPoller;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
+use Tests\TestCase;
+
+class SnmpIdentityPollerTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private function device(array $over = []): Device
+    {
+        $device = Device::factory()->create(array_merge([
+            'site_id' => Site::factory()->create()->id,
+            'vendor' => 'juniper',
+            'model' => 'Unknown',
+            'serial_number' => null,
+            'os_version' => null,
+            'snmp_community' => 'public',
+        ], $over));
+
+        // The poller only enriches reachable devices — seed a successful ping.
+        DeviceMetricHistory::create([
+            'device_id' => $device->id, 'recorded_at' => now(), 'response_time_ms' => 5.0,
+        ]);
+
+        return $device;
+    }
+
+    private function walker(array $responses): callable
+    {
+        return fn (Device $d, string $oid) => $responses[$oid] ?? '';
+    }
+
+    public function test_it_fills_model_serial_from_entity_mib(): void
+    {
+        $device = $this->device();
+        (new SnmpIdentityPoller($this->walker([
+            '.1.3.6.1.2.1.47.1.1.1.1.13' => 'ENTITY-MIB::entPhysicalModelName.1 = STRING: "EX4300-48T"',
+            '.1.3.6.1.2.1.47.1.1.1.1.11' => 'ENTITY-MIB::entPhysicalSerialNum.1 = STRING: "PE3717AF0123"',
+            '.1.3.6.1.2.1.1.1' => 'SNMPv2-MIB::sysDescr.0 = STRING: Juniper Networks, Inc. ex4300-48t Ethernet Switch, kernel JUNOS 18.4R2-S3.3, Build date: 2020',
+        ])))->poll($device);
+
+        $device->refresh();
+        $this->assertSame('EX4300-48T', $device->model);
+        $this->assertSame('PE3717AF0123', $device->serial_number);
+        $this->assertSame('18.4R2-S3.3', $device->os_version);
+    }
+
+    public function test_it_falls_back_to_sysdescr_for_model_when_entity_mib_is_empty(): void
+    {
+        $device = $this->device();
+        (new SnmpIdentityPoller($this->walker([
+            '.1.3.6.1.2.1.1.1' => 'SNMPv2-MIB::sysDescr.0 = STRING: Juniper Networks, Inc. ex3400-24t Ethernet Switch, kernel JUNOS 20.4R3',
+        ])))->poll($device);
+
+        $device->refresh();
+        $this->assertSame('EX3400-24T', $device->model);
+        $this->assertSame('20.4R3', $device->os_version);
+    }
+
+    public function test_silverpeak_model_serial_and_version_come_from_the_silverpeak_mib(): void
+    {
+        $device = $this->device(['vendor' => 'silverpeak']);
+        // Identity comes from a single walk of the SILVERPEAK-MGMT system group.
+        (new SnmpIdentityPoller($this->walker([
+            '.1.3.6.1.4.1.23867.3.1.1.1' => implode("\n", [
+                'iso.3.6.1.4.1.23867.3.1.1.1.1.0 = STRING: "9.3.8.1_96913"',
+                'iso.3.6.1.4.1.23867.3.1.1.1.2.0 = STRING: "EC10104"',
+                'iso.3.6.1.4.1.23867.3.1.1.1.6.0 = STRING: "00-1B-BC-36-9E-88"',
+            ]),
+        ])))->poll($device);
+
+        $device->refresh();
+        $this->assertSame('EC10104', $device->model);
+        $this->assertSame('9.3.8.1_96913', $device->os_version);
+        // Serial OID .6.0 returns a dashed MAC; stored without separators (GUI form).
+        $this->assertSame('001BBC369E88', $device->serial_number);
+    }
+
+    public function test_a_no_such_object_reply_is_never_stored_as_a_value(): void
+    {
+        $device = $this->device();
+        (new SnmpIdentityPoller($this->walker([
+            '.1.3.6.1.2.1.47.1.1.1.1.11' => 'ENTITY-MIB::entPhysicalSerialNum.1 = No Such Object available on this agent at this OID',
+            '.1.3.6.1.2.1.47.1.1.1.1.13' => 'ENTITY-MIB::entPhysicalModelName.1 = No Such Instance currently exists at this OID',
+            '.1.3.6.1.2.1.1.1' => 'SNMPv2-MIB::sysDescr.0 = STRING: Juniper Networks, Inc. ex4300-48t Ethernet Switch, kernel JUNOS 18.4R2',
+        ])))->poll($device);
+
+        $device->refresh();
+        $this->assertSame('EX4300-48T', $device->model);          // fell back to sysDescr
+        $this->assertNull($device->serial_number);                // NOT "No Such Object..."
+    }
+
+    public function test_a_swapped_unit_is_caught_even_when_identity_was_already_complete(): void
+    {
+        // Model + serial + OS all known used to mean "done for good", so a unit
+        // replaced at the same IP kept the dead box's serial on the record for ever
+        // unless it happened to go unreachable and come back. Identity is re-read on
+        // its own cadence now, and a serial that moves is a hardware replacement.
+        $device = $this->device(['model' => 'EX4600', 'serial_number' => 'SER000', 'os_version' => '21.2R1']);
+        (new SnmpIdentityPoller($this->walker([
+            '.1.3.6.1.2.1.47.1.1.1.1.11' => 'x.1 = STRING: "SER123"',
+        ])))->poll($device);
+
+        $device->refresh();
+        $this->assertSame('SER123', $device->serial_number);
+        $this->assertSame('SER000', $device->previous_serial_number);
+        $this->assertNotNull($device->hardware_changed_at);
+
+        $this->assertDatabaseHas('device_hardware_changes', [
+            'device_id' => $device->id,
+            'field' => 'serial_number',
+            'old_value' => 'SER000',
+            'new_value' => 'SER123',
+            'source' => 'snmp',
+        ]);
+    }
+
+    public function test_a_complete_identity_is_not_rewalked_inside_the_refresh_window(): void
+    {
+        $device = $this->device([
+            'model' => 'EX4600', 'serial_number' => 'SER000', 'os_version' => '21.2R1',
+            'identity_attempted_at' => now()->subMinutes(10),
+        ]);
+        (new SnmpIdentityPoller($this->walker([
+            '.1.3.6.1.2.1.47.1.1.1.1.11' => 'x.1 = STRING: "SER123"',
+        ])))->poll($device);
+
+        $this->assertSame('SER000', $device->fresh()->serial_number);
+        $this->assertDatabaseCount('device_hardware_changes', 0);
+    }
+
+    public function test_a_hand_entered_model_is_not_overwritten_by_a_routine_pass(): void
+    {
+        // The model is the one identity field an operator types, and a correction made
+        // in the UI must survive the hourly walk. Only a serial change (or an explicit
+        // post-recovery recheck) is evidence the box itself is different.
+        $device = $this->device([
+            'model' => 'FGT401E-corrected', 'serial_number' => 'SER000', 'os_version' => '21.2R1',
+        ]);
+        (new SnmpIdentityPoller($this->walker([
+            '.1.3.6.1.2.1.47.1.1.1.1.11' => 'x.1 = STRING: "SER000"',
+            '.1.3.6.1.2.1.47.1.1.1.1.13' => 'x.1 = STRING: "EX4600"',
+        ])))->poll($device);
+
+        $this->assertSame('FGT401E-corrected', $device->fresh()->model);
+    }
+
+    public function test_a_hand_entered_model_still_gets_serial_and_os(): void
+    {
+        // Regression: a model typed into the add form used to make the poller think
+        // identity was done, so serial + OS were never fetched. It must still walk.
+        $device = $this->device(['model' => 'ex4650-48y-8c']);   // model set, serial+os null
+        (new SnmpIdentityPoller($this->walker([
+            '.1.3.6.1.2.1.47.1.1.1.1.11' => 'ENTITY-MIB::entPhysicalSerialNum.1 = STRING: "PE9999"',
+            '.1.3.6.1.2.1.1.1' => 'sysDescr.0 = STRING: Juniper Networks, Inc. ex4650-48y-8c Ethernet Switch, kernel JUNOS 21.4R3-S2.6, Build',
+        ])))->poll($device);
+
+        $device->refresh();
+        $this->assertSame('ex4650-48y-8c', $device->model);    // hand-entered, kept
+        $this->assertSame('PE9999', $device->serial_number);   // now discovered
+        $this->assertSame('21.4R3-S2.6', $device->os_version); // now discovered
+    }
+
+    public function test_os_version_falls_back_to_software_rev_when_sysdescr_is_overridden(): void
+    {
+        // A switch with `set snmp description <hostname>` returns its hostname for
+        // sysDescr (no JUNOS string) — the version must come from entPhysicalSoftwareRev.
+        $device = $this->device(['model' => 'ex4650-48y-8c']);
+        (new SnmpIdentityPoller($this->walker([
+            '.1.3.6.1.2.1.1.1' => 'iso.3.6.1.2.1.1.1.0 = STRING: "FL0001-HQSWC04"',
+            '.1.3.6.1.2.1.47.1.1.1.1.11' => 'x.1 = STRING: "PE9999"',
+            '.1.3.6.1.2.1.47.1.1.1.1.10' => "x.1 = STRING: \"REV 05\"\nx.2 = STRING: \"21.4R3-S2.6\"",
+        ])))->poll($device);
+
+        $device->refresh();
+        $this->assertSame('21.4R3-S2.6', $device->os_version);   // from software rev, skipping "REV 05"
+        $this->assertSame('PE9999', $device->serial_number);
+    }
+
+    public function test_incomplete_identity_is_throttled_after_a_recent_attempt(): void
+    {
+        // A device that never returns a serial must not re-walk every cycle — once
+        // attempted, it's paced (6h) so it can't storm the box.
+        $device = $this->device(['model' => 'EX4600', 'identity_attempted_at' => now()->subMinutes(5)]);
+        (new SnmpIdentityPoller($this->walker([
+            '.1.3.6.1.2.1.47.1.1.1.1.11' => 'x.1 = STRING: "SER123"',
+        ])))->poll($device);
+
+        $device->refresh();
+        $this->assertNull($device->serial_number);   // throttled — not walked yet
+    }
+
+    public function test_an_unreachable_device_is_not_walked(): void
+    {
+        $device = Device::factory()->create([
+            'site_id' => Site::factory()->create()->id,
+            'vendor' => 'juniper', 'model' => 'Unknown', 'snmp_community' => 'public',
+        ]);
+        // Last ping timed out (null) → unreachable → no SNMP walks attempted.
+        DeviceMetricHistory::create([
+            'device_id' => $device->id, 'recorded_at' => now(), 'response_time_ms' => null,
+        ]);
+
+        $walked = false;
+        (new SnmpIdentityPoller(function () use (&$walked) {
+            $walked = true;
+
+            return '';
+        }))->poll($device);
+
+        $this->assertFalse($walked);
+        $this->assertSame('Unknown', $device->fresh()->model);
+    }
+
+    public function test_a_fortigate_version_is_read_and_a_wrong_one_corrected(): void
+    {
+        // AZR-FW01 carried HQ-FW's "v7.4.12,build2902,260505 (GA.M)" on its record
+        // while actually running v7.2.10, and 48 vulnerability findings were judged
+        // against the wrong firmware. No poll could ever fix it: FortiOS keeps its
+        // version in the Fortinet enterprise tree, the poller only knew the
+        // Juniper-shaped sysDescr parse, so os_version was never read — and a field
+        // that is never read is never corrected either.
+        $device = $this->device([
+            'vendor' => 'fortigate',
+            'model' => 'FGT_VM64_AZURE',
+            'serial_number' => 'FGTAZRLXG2QAA6DA',
+            'os_version' => 'v7.4.12,build2902,260505 (GA.M)',
+        ]);
+
+        (new SnmpIdentityPoller($this->walker([
+            '.1.3.6.1.4.1.12356.101.4.1.1.0' => 'iso.3.6.1.4.1.12356.101.4.1.1.0 = STRING: "v7.2.10,build1706,240918 (GA.M)"',
+        ])))->poll($device);
+
+        $this->assertSame('v7.2.10,build1706,240918 (GA.M)', $device->fresh()->os_version);
+        $this->assertDatabaseHas('device_hardware_changes', [
+            'device_id' => $device->id,
+            'field' => 'os_version',
+            'new_value' => 'v7.2.10,build1706,240918 (GA.M)',
+        ]);
+    }
+
+    public function test_a_silent_fortigate_never_erases_a_known_version(): void
+    {
+        // The other half of the rule: no answer is not a reading. A firewall that
+        // drops the scalar must keep what is on file, not be blanked.
+        $device = $this->device([
+            'vendor' => 'fortigate',
+            'model' => 'FGT_401E',
+            'serial_number' => 'FG4H1E5819900649',
+            'os_version' => 'v7.4.12,build2902,260505 (GA.M)',
+        ]);
+
+        (new SnmpIdentityPoller($this->walker([])))->poll($device);
+
+        $this->assertSame('v7.4.12,build2902,260505 (GA.M)', $device->fresh()->os_version);
+    }
+
+    public function test_a_firmware_change_queues_a_vulnerability_reassessment(): void
+    {
+        // AZR-FW01 sat on 48 findings stamped with a release it no longer ran,
+        // because the catalog scan is daily and identity is now read hourly. The
+        // scanner resolves findings whose range stops covering the firmware — it
+        // just had to be asked, and an upgrade is the moment to ask.
+        Queue::fake();
+
+        $device = $this->device([
+            'vendor' => 'fortigate', 'model' => 'FGT_VM64_AZURE',
+            'serial_number' => 'FGTAZRLXG2QAA6DA', 'os_version' => 'v7.2.10,build1706,240918 (GA.M)',
+        ]);
+
+        (new SnmpIdentityPoller($this->walker([
+            '.1.3.6.1.4.1.12356.101.4.1.1.0' => 'iso.3.6.1.4.1.12356.101.4.1.1.0 = STRING: "v7.4.12,build2902,260505 (GA.M)"',
+        ])))->poll($device);
+
+        Queue::assertPushed(ReassessDeviceVulnerabilities::class,
+            fn ($job) => $job->deviceId === $device->id);
+    }
+
+    public function test_an_unchanged_version_queues_nothing(): void
+    {
+        // Identity is re-read hourly on 304 devices. Queuing a re-assessment for
+        // every unchanged read would be 304 pointless catalog correlations an hour.
+        Queue::fake();
+
+        $device = $this->device([
+            'vendor' => 'fortigate', 'model' => 'FGT_401E',
+            'serial_number' => 'FG4H1E5819900649', 'os_version' => 'v7.4.12,build2902,260505 (GA.M)',
+        ]);
+
+        (new SnmpIdentityPoller($this->walker([
+            '.1.3.6.1.4.1.12356.101.4.1.1.0' => 'iso.3.6.1.4.1.12356.101.4.1.1.0 = STRING: "v7.4.12,build2902,260505 (GA.M)"',
+        ])))->poll($device);
+
+        Queue::assertNothingPushed();
+    }
+
+    public function test_a_first_ever_reading_queues_nothing(): void
+    {
+        // Filling a blank field is discovery, not an upgrade. The nightly scan will
+        // pick it up; there is nothing stale to correct.
+        Queue::fake();
+
+        $device = $this->device(['vendor' => 'fortigate', 'os_version' => null]);
+
+        (new SnmpIdentityPoller($this->walker([
+            '.1.3.6.1.4.1.12356.101.4.1.1.0' => 'iso.3.6.1.4.1.12356.101.4.1.1.0 = STRING: "v7.4.12,build2902,260505 (GA.M)"',
+        ])))->poll($device);
+
+        Queue::assertNothingPushed();
+    }
+}
