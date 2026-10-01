@@ -1,0 +1,99 @@
+name: build-image
+
+# Publishes the app container image to GitHub Container Registry so it can be
+# referenced by image: in Portainer (which cannot build from a Dockerfile).
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  # The release. Nothing else may make this job fail — a registry hiccup while
+  # pushing an unrelated sidecar once marked a good release "failed" even though
+  # this image had already published.
+  app:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/securaitllc/securasnmp:latest
+            ghcr.io/securaitllc/securasnmp:${{ github.ref_name }}
+
+  # OSINT enumeration sidecar (enum/) — its own image so Portainer can pull it
+  # with image: (it cannot build from a Dockerfile).
+  #
+  # Its own job, so its failure cannot fail the release above, and it only builds
+  # when enum/ has actually changed. Releases are published here as a single
+  # force-pushed orphan commit, so there is no parent to diff against and path
+  # filters see every file as new — the content of enum/ is hashed instead, and an
+  # image already built from that exact content is simply re-tagged.
+  enum-sidecar:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Hash enum/ and look for an image already built from it
+        id: probe
+        run: |
+          set -euo pipefail
+          hash=$(find enum -type f -print0 | sort -z \
+            | xargs -0 sha256sum | sha256sum | cut -c1-12)
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+          image=ghcr.io/securaitllc/securasnmp-enum
+          if docker buildx imagetools inspect "$image:src-$hash" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "enum/ unchanged (src-$hash already built) — re-tagging, not rebuilding"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "enum/ changed (src-$hash is new) — building"
+          fi
+
+      # Unchanged: point the release tags at the image that already exists. No
+      # rebuild, no layer push, so a registry fault has nothing to fail on.
+      - name: Re-tag the existing sidecar
+        if: steps.probe.outputs.exists == 'true'
+        run: |
+          set -euo pipefail
+          image=ghcr.io/securaitllc/securasnmp-enum
+          docker buildx imagetools create \
+            --tag "$image:latest" \
+            --tag "$image:${{ github.ref_name }}" \
+            "$image:src-${{ steps.probe.outputs.hash }}"
+
+      - name: Build and push enum sidecar
+        if: steps.probe.outputs.exists == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./enum
+          push: true
+          tags: |
+            ghcr.io/securaitllc/securasnmp-enum:latest
+            ghcr.io/securaitllc/securasnmp-enum:src-${{ steps.probe.outputs.hash }}
+            ghcr.io/securaitllc/securasnmp-enum:${{ github.ref_name }}

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nodus — offline</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: #0B0E14; color: #D7DCE4; padding: 32px;
+      font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    }
+    .card { max-width: 420px; }
+    .mark { width: 15px; height: 15px; border: 2px solid #2563EB; display: inline-block; vertical-align: -2px; }
+    .name { font-weight: 700; letter-spacing: .06em; font-size: 13px; margin-left: 9px; }
+    h1 { font-size: 22px; font-weight: 500; letter-spacing: -.01em; color: #F2F5F8; margin: 26px 0 10px; }
+    p { font-size: 13.5px; line-height: 1.6; color: #79828F; margin: 0 0 10px; }
+    .rule { border: 0; border-top: 1px solid #1E242E; margin: 22px 0; }
+    .note { font-size: 12px; color: #5C6472; line-height: 1.6; }
+    button {
+      margin-top: 20px; height: 44px; padding: 0 18px; border: 0; background: #2563EB; color: #fff;
+      font: inherit; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div><span class="mark"></span><span class="name">NODUS</span></div>
+
+    <h1>This device is offline</h1>
+    <p>Nodus cannot reach the network, so it has nothing current to show you.</p>
+
+    <hr class="rule" />
+
+    <!-- The whole point of this page. A monitoring tool that shows its last known
+         state while offline is worse than one that shows nothing: every site would
+         read exactly as it did when the signal dropped. -->
+    <p class="note">
+      Nothing is cached on purpose. The last state this phone saw is not the state of
+      the network now, and showing it would look like an all-clear.
+    </p>
+
+    <button onclick="location.reload()">Try again</button>
+  </div>
+</body>
+</html>
