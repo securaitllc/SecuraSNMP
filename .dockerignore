@@ -1,0 +1,10 @@
+/vendor
+/node_modules
+/public/build
+/public/hot
+.env
+.git
+/storage/*.key
+/storage/logs
+/materialize-admin-v13.11.1
+/bootstrap/cache/*.php

@@ -1,0 +1,133 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\Circuit;
+use App\Models\CircuitAlert;
+use App\Models\Device;
+use App\Models\DeviceAlarm;
+use App\Models\DeviceNextHop;
+use App\Models\Site;
+use App\Services\AlarmGroupingService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+/**
+ * Reproduces the prod #024 Boca case: gateway pings up over the ISP L2VPN, so no
+ * circuit outage — only tunnel-rollup + next-hop + IP-SLA device alarms. They must
+ * group under the Lumen circuit (degraded) with the rollup in a site bucket.
+ */
+class AlarmGroupingTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private function seed024(): Site
+    {
+        $site = Site::factory()->create(['name' => '#024 Boca Commercial FL']);
+        $dev = Device::factory()->create(['site_id' => $site->id, 'role' => 'edgeconnect', 'name' => 'FL0018-SC024_SDW']);
+
+        Circuit::factory()->create(['site_id' => $site->id, 'isp_name' => 'Lumen', 'wan_interface' => 'wan1', 'gateway_ip' => '63.212.186.49', 'status' => 'up']);
+        Circuit::factory()->create(['site_id' => $site->id, 'isp_name' => 'AT&T', 'wan_interface' => 'wan0', 'gateway_ip' => '23.127.131.134', 'status' => 'up']);
+        DeviceNextHop::create(['device_id' => $dev->id, 'ip_address' => '63.212.186.49', 'interface' => 'wan1']);
+
+        DeviceAlarm::factory()->create(['device_id' => $dev->id, 'alarm_id' => 'ec:65537:Tunnel', 'severity' => 'critical', 'description' => 'Many tunnels to remote sites are down']);
+        DeviceAlarm::factory()->create(['device_id' => $dev->id, 'alarm_id' => 'ec:196625:gw:63.212.186.49', 'severity' => 'critical', 'description' => 'Next-hop unreachable — gw:63.212.186.49']);
+        DeviceAlarm::factory()->create(['device_id' => $dev->id, 'alarm_id' => 'ec:262189:Ping on Port wan1 label DIA1', 'severity' => 'warning', 'description' => 'An IP SLA monitor is in the Down state — Ping on Port wan1 tunnel N/A label DIA1']);
+
+        return $site;
+    }
+
+    public function test_it_groups_the_024_alarms_by_isp_circuit(): void
+    {
+        $site = $this->seed024();
+        $out = (new AlarmGroupingService)->grouped($site->id);
+
+        $this->assertCount(1, $out);
+        $groups = $out[0]['groups'];
+
+        // Lumen circuit group carries the next-hop + IP-SLA, and is DEGRADED (ping up).
+        $lumen = collect($groups)->firstWhere('kind', 'circuit');
+        $this->assertSame('Lumen', $lumen['circuit']['isp_name']);
+        $this->assertSame('degraded', $lumen['state']);
+        $this->assertCount(2, $lumen['alarms']);
+
+        // The rollup has no ISP → site bucket. AT&T has no alarms → absent.
+        $bucket = collect($groups)->firstWhere('kind', 'site');
+        $this->assertCount(1, $bucket['alarms']);
+        $this->assertSame('ec:65537:Tunnel', $bucket['alarms'][0]['alarm_id']);
+        $this->assertCount(2, $groups); // Lumen + site bucket only
+    }
+
+    public function test_outage_ticket_and_circuit_level_dispatch_surface_on_the_group(): void
+    {
+        $site = $this->seed024();
+        $lumen = Circuit::where('isp_name', 'Lumen')->first();
+        // Outage ticket still comes from the open alert; the field-dispatch ETA is now
+        // circuit-level (one source of truth with the dashboard/circuits page).
+        CircuitAlert::factory()->create([
+            'circuit_id' => $lumen->id, 'ended_at' => null, 'ticket_number' => 'LUMEN-4471822',
+        ]);
+        $lumen->update(['dispatch_at' => now()]);
+
+        $group = collect((new AlarmGroupingService)->grouped($site->id)[0]['groups'])->firstWhere('kind', 'circuit');
+        $this->assertSame('LUMEN-4471822', $group['ticket']['isp_ticket']);
+        $this->assertNotNull($group['ticket']['dispatch_at']);
+    }
+
+    public function test_circuit_outage_and_interface_alert_fold_into_the_grouping(): void
+    {
+        $site = Site::factory()->create(['name' => '#050 Test']);
+        $dev = Device::factory()->create(['site_id' => $site->id, 'role' => 'juniper', 'name' => 'sw01']);
+
+        // A circuit ping outage → its circuit must appear as a DOWN group.
+        $circuit = Circuit::factory()->create(['site_id' => $site->id, 'isp_name' => 'Comcast', 'wan_interface' => 'wan2', 'status' => 'down']);
+        \App\Models\CircuitAlert::factory()->create(['circuit_id' => $circuit->id, 'ended_at' => null, 'started_at' => now(), 'ticket_number' => 'CMCST-7']);
+
+        // An access-port interface alert → the site bucket. The port must be genuinely
+        // down (oper-down, admin-up, not suppressed) to count — same gate as the dashboard.
+        $if = \App\Models\DeviceInterface::factory()->create(['device_id' => $dev->id, 'if_name' => 'ge-0/0/14', 'status' => 'down', 'admin_status' => 'up', 'alarm_suppressed' => false]);
+        \App\Models\InterfaceAlert::create(['device_interface_id' => $if->id, 'severity' => 'warning', 'started_at' => now()]);
+
+        $groups = collect((new AlarmGroupingService)->grouped($site->id)[0]['groups']);
+
+        $comcast = $groups->firstWhere(fn ($g) => $g['kind'] === 'circuit' && $g['circuit']['isp_name'] === 'Comcast');
+        $this->assertSame('down', $comcast['state']);
+        $this->assertSame('CMCST-7', $comcast['ticket']['isp_ticket']);
+        $this->assertStringContainsString('Circuit down', $comcast['alarms'][0]['description']);
+
+        $bucket = $groups->firstWhere('kind', 'site');
+        $this->assertStringContainsString('ge-0/0/14', $bucket['alarms'][0]['description']);
+    }
+
+    public function test_the_grouped_endpoint_requires_auth_and_returns_sites(): void
+    {
+        $site = $this->seed024();
+        $user = \App\Models\User::factory()->create();
+
+        $this->getJson('/api/alarms/grouped')->assertUnauthorized();
+        $this->actingAs($user)->getJson("/api/alarms/grouped?site_id={$site->id}")
+            ->assertOk()->assertJsonPath('sites.0.site_name', '#024 Boca Commercial FL');
+    }
+
+    public function test_a_hub_tunnel_alarm_for_a_down_spoke_is_dropped_from_the_grouped_view(): void
+    {
+        // #063 spoke transport down; #893 hub alarms "to_<spoke>" as a symptom. The By-ISP
+        // grouped view must not list the hub's tunnel alarm under #893 — it belongs to #063.
+        $hubSite = Site::factory()->create(['name' => '#893 HQ Orlando', 'site_type' => 'hub']);
+        $hub = Device::factory()->create(['site_id' => $hubSite->id, 'role' => 'edgeconnect', 'name' => 'FL0001-HQ-PRI_SDW']);
+        $spokeSite = Site::factory()->create(['name' => '#063 Baton Rouge LA']);
+        $spoke = Device::factory()->create(['site_id' => $spokeSite->id, 'role' => 'edgeconnect', 'name' => 'LA0001-SC063_SDW']);
+
+        DeviceAlarm::factory()->create(['device_id' => $spoke->id, 'alarm_id' => 'ec:196625:gw:70.164.53.177',
+            'description' => 'Next-hop unreachable — gw:70.164.53.177', 'severity' => 'critical', 'cleared_at' => null]);
+        DeviceAlarm::factory()->create(['device_id' => $hub->id, 'alarm_id' => 'ec:65537:to_LA0001-SC63_DIA2-Broadband1',
+            'description' => 'Tunnel state is Down — to_LA0001-SC63_DIA2-Broadband1', 'severity' => 'critical', 'cleared_at' => null]);
+
+        $groups = collect((new AlarmGroupingService)->grouped());
+        $hubGroup = $groups->firstWhere('site_id', $hubSite->id);
+        $spokeGroup = $groups->firstWhere('site_id', $spokeSite->id);
+
+        $this->assertNull($hubGroup, 'the hub must not appear — its only alarm was the spoke-caused tunnel symptom');
+        $this->assertNotNull($spokeGroup, 'the spoke keeps its own transport alarm');
+    }
+}
